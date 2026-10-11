@@ -9,6 +9,7 @@ import path from 'node:path';
 import { projectPaths, listProjects, readJson } from './project.mjs';
 import { callLlm } from './fusion.mjs';
 import { repairLatex } from './latex.mjs';
+import { parseLlmJson } from './json.mjs';
 
 const MAX_CHUNK = 700; // 单个片段送去 AI 判定的最大长度
 
@@ -223,10 +224,9 @@ export async function searchAi({ query, cfg, limit = 14, onEvent = () => {} }) {
   });
   let parsed;
   try {
-    parsed = JSON.parse(content);
+    parsed = parseLlmJson(content, 'AI 搜索结果');
   } catch {
-    const m = content.match(/\{[\s\S]*\}/);
-    parsed = m ? JSON.parse(m[0]) : { hits: [] };
+    parsed = { hits: [] };
   }
   const hits = [];
   for (const h of parsed.hits || []) {

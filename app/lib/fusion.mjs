@@ -220,7 +220,7 @@ async function mergeNotes({ sections, meta, cfg, cacheDir, onEvent, signal, bust
   });
   let obj;
   try {
-    obj = JSON.parse(content.replace(/```json|```/g, '').trim());
+    obj = parseLlmJson(content, '整体汇总');
   } catch {
     obj = { title: meta.title, subtitle: '', overview: '', objectives: [], sections: [], formulas: '', glossary: '', quiz: '' };
     onEvent({ type: 'log', level: 'warn', message: '整体汇总解析失败，已跳过概览部分' });

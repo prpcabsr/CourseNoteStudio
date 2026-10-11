@@ -34,7 +34,8 @@
     "test:autoclose": "node tests/autoclose-check.mjs",
     "pdf:pages": "node tests/pdf-render.mjs",
     "test:search": "node tests/search-check.mjs",
-    "test:supplement": "node tests/supplement-check.mjs"
+    "test:supplement": "node tests/supplement-check.mjs",
+    "test:json": "node tests/json-check.mjs"
   },
   "engines": {
     "node": ">=20"

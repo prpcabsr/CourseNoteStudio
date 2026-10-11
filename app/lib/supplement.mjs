@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { projectPaths, loadState, readJson, writeJson } from './project.mjs';
 import { callLlm } from './fusion.mjs';
+import { parseLlmJson } from './json.mjs';
 
 const SYSTEM = `你是一位非常擅长「补背景」的大学助教。学生手上有一份课堂笔记，你要找出**课上没讲、但不懂就会卡住**的关键点，写成旁注。
 
@@ -81,10 +82,9 @@ export async function generateSupplements({ projectId, cfg, onEvent = () => {} }
 
   let parsed;
   try {
-    parsed = JSON.parse(content);
-  } catch {
-    const m = content.match(/\{[\s\S]*\}/);
-    parsed = m ? JSON.parse(m[0]) : { items: [] };
+    parsed = parseLlmJson(content, 'AI 补充结果');
+  } catch (e) {
+    throw new Error(`AI 补充失败：${e.message}（可以再点一次重试）`);
   }
 
   // 校验 + 归一：section 越界丢弃、anchor 必须在正文里真的出现

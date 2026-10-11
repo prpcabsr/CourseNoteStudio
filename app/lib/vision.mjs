@@ -4,6 +4,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { MODELS_DIR, findLlamaServer, fileSize } from './paths.mjs';
+import { repairJsonEscapes } from './json.mjs';
 import { repairLatex } from './latex.mjs';
 
 const VLM_PRESETS = {
@@ -366,8 +367,9 @@ export function parseBoardJson(content) {
   const text = typeof content === 'string' ? content : JSON.stringify(content);
   const cleaned = text.replace(/^```(?:json)?/m, '').replace(/```\s*$/m, '').trim();
   const tryParse = (s) => {
+    // 板书里的 LaTeX（\frac、\oint…）在 JSON 里是非法转义，先补一下再解析
     try {
-      return JSON.parse(s);
+      return JSON.parse(repairJsonEscapes(s));
     } catch {
       return null;
     }
