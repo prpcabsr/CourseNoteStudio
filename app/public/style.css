@@ -474,6 +474,9 @@ a { color: var(--accent); text-decoration: none; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
 .form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-2); }
 .chk-line { flex-direction: row !important; align-items: center; gap: 7px !important; grid-column: span 1; }
+/* 整行占满的下拉项（例如 AI 审校严格程度） */
+.row-line { grid-column: 1 / -1; }
+.row-line select { width: 100%; }
 
 /* ── 外观设置标签页 ── */
 .tab-look { color: var(--accent); }

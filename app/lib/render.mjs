@@ -188,22 +188,23 @@ figure figcaption { background: color-mix(in srgb, var(--paper-bg) 88%, transpar
 }
 
 /**
- * 把 AI 审校发现的「根本错误」烧进正文：在出问题那句话后面插一个红色感叹号。
+ * 把 AI 审校的结果落进正文：
+ *   · 用改正后的句子**替换**原来那句（笔记里不保留错误写法）；
+ *   · 在改过的地方留一个红色感叹号，鼠标悬停能看到「与视频 mm:ss 不符」。
  * 直接烧进 HTML 的好处：PDF 里有、关掉 AI 批注也看得见。
  */
-export function injectAuditFlags(markdown, items) {
+export function applyAuditFixes(markdown, items) {
   let md = String(markdown || '');
   if (!items || !items.length) return md;
-  // 从后往前插，避免前面的插入影响后面 anchor 的位置
+  // 从后往前改，避免前面的替换影响后面 anchor 的位置
   const found = items
     .map((it) => ({ it, i: md.indexOf(it.anchor) }))
-    .filter((x) => x.i >= 0)
+    .filter((x) => x.i >= 0 && x.it.fixed)
     .sort((a, b) => b.i - a.i);
   for (const { it, i } of found) {
-    // 用 CSS 画一个红底白叹号：不能直接写 ❗ —— 那个字符会被系统按彩色 emoji 渲染，
-    // color 根本不起作用，看起来是个黑/彩色的图标，不符合「显眼红色」的要求
-    const flag = ` <span class="err-flag" title="${escapeHtml(it.title)}">!</span>`;
-    md = md.slice(0, i + it.anchor.length) + flag + md.slice(i + it.anchor.length);
+    const tip = it.videoTime ? `与视频 ${it.videoTime} 不符，已按视频更正` : '此处已由 AI 审校更正';
+    const flag = ` <span class="err-flag" title="${escapeHtml(tip)}">!</span>`;
+    md = md.slice(0, i) + it.fixed + flag + md.slice(i + it.anchor.length);
   }
   return md;
 }
@@ -402,8 +403,8 @@ export function buildHtml(
   // 正文
   for (const s of doc.sections) {
     let body = s.markdown.replace(/^#{1,3}\s*.+$/m, '').trim();
-    // AI 审校发现的根本错误：在出问题那句后面插红色感叹号（烧进 HTML，关掉批注也看得见）
-    body = injectAuditFlags(body, (doc.audit || []).filter((a) => a.section === s.index));
+    // AI 审校：把写错的句子换成正确写法，并在改过的地方留红色感叹号
+    body = applyAuditFixes(body, (doc.audit || []).filter((a) => a.section === s.index));
     if (!body && !s.images.length) continue;
     parts.push('<section class="section">');
     parts.push(`<h2 class="section-head"><span class="sec-no">${String(s.index + 1).padStart(2, '0')}</span><span>${escapeHtml(s.title)}</span><span class="sec-time">${fmtTime(s.start)} – ${fmtTime(s.end)}</span></h2>`);
@@ -428,26 +429,25 @@ export function buildHtml(
     parts.push('<section class="section"><h2>复习自测</h2>' + mdToHtml(doc.quiz) + '</section>');
   }
 
-  // 附录：AI 审校发现的问题（正文里已经有红色感叹号，这里给出完整说明）
+  // 附录：AI 审校更正过的地方。
+  // 正文里已经写的是**正确**的内容，所以这里只记「哪里按视频更正过」，
+  // 不重复错误写法（笔记是拿来学的，不该出现作废的公式）。
   const audit = Array.isArray(doc.audit) ? doc.audit : [];
   if (audit.length) {
-    parts.push('<section class="appendix"><h2>附录 · AI 审校发现的问题</h2>');
+    parts.push('<section class="appendix"><h2>附录 · AI 审校按视频更正过的地方</h2>');
     parts.push(
-      '<p style="color:#5b6472;font-size:9pt">出稿后由模型逐节复核，只列<b>实质性错误</b>（公式错、结论错、条件缺失导致结论不成立、概念混淆）；表述与排版问题不算。正文里对应位置有红色感叹号 ❗。</p>',
+      '<p style="color:#5b6472;font-size:9pt">正文里带红色感叹号的地方，是 AI 审校对照课堂视频逐句核对后<b>已经改成正确写法</b>的位置。这里只记录出处，便于你回看视频确认。</p>',
     );
+    parts.push('<table><thead><tr><th style="width:70pt">位置</th><th style="width:78pt">视频时间</th><th>说明</th></tr></thead><tbody>');
     let n = 0;
     for (const a of audit) {
       n++;
-      parts.push('<div class="audit-card">');
-      parts.push(`<h4><span class="err-flag">!</span> 问题 ${n}：${escapeHtml(a.title)}</h4>`);
       parts.push(
-        `<div class="where">第 ${(a.section ?? 0) + 1} 节${a.sectionTitle ? ' · ' + escapeHtml(a.sectionTitle) : ''}</div>`,
+        `<tr><td>第 ${(a.section ?? 0) + 1} 节</td><td>${escapeHtml(a.videoTime || '—')}</td><td>${textToHtml(String(a.title || ''), { inlineMath: true })}${a.videoQuote ? `<div style="color:#5b6472;font-size:9pt;margin-top:2pt">老师原话：「${escapeHtml(a.videoQuote)}」</div>` : ''}</td></tr>`,
       );
-      if (a.anchor) parts.push(`<div class="quote">原文：${textToHtml(String(a.anchor).slice(0, 200), { inlineMath: true })}</div>`);
-      parts.push(`<div>${textToHtml(String(a.detail || ''), { inlineMath: true })}</div>`);
-      parts.push('</div>');
     }
-    parts.push('</section>');
+    parts.push('</tbody></table></section>');
+    void n;
   }
 
   // 附录：老师更正过的地方（正文只留最终版本，这里留档便于核对）

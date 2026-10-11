@@ -40,7 +40,8 @@
     "test:grid": "node tests/grid-check.mjs",
     "test:ask": "node tests/ask-scope-check.mjs",
     "test:audit": "node tests/audit-check.mjs",
-    "test:correction": "node tests/correction-check.mjs"
+    "test:correction": "node tests/correction-check.mjs",
+    "test:audit-fix": "node tests/audit-fix-e2e.mjs"
   },
   "engines": {
     "node": ">=20"

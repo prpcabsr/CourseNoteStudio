@@ -18,7 +18,7 @@ export function fmtTime(t) {
 }
 
 /** 调用 OpenAI 兼容的对话接口（默认 DeepSeek）。 */
-export async function callLlm({ cfg, messages, json = false, onEvent = () => {}, signal, maxRetry = 3 }) {
+export async function callLlm({ cfg, messages, json = false, onEvent = () => {}, signal, maxRetry = 3, temperature = null }) {
   const { key, source } = resolveLlmKey(cfg);
   if (!key) {
     throw new Error(
@@ -30,7 +30,7 @@ export async function callLlm({ cfg, messages, json = false, onEvent = () => {},
   const body = {
     model: cfg.llm.model,
     messages,
-    temperature: cfg.llm.temperature ?? 0.3,
+    temperature: temperature ?? cfg.llm.temperature ?? 0.3,
     max_tokens: cfg.llm.maxTokens ?? 4096,
     stream: false,
   };

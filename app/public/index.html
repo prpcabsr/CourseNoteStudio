@@ -431,6 +431,13 @@
       </label>
       <label>课程名称（写入 PDF 封面）<input class="input" id="cfgCourse"></label>
       <label class="chk-line"><input type="checkbox" id="cfgAutoPdf"> 生成后自动导出 PDF（默认关闭，按需点「导出 PDF」）</label>
+      <label class="row-line">AI 审校严格程度
+        <select id="cfgAuditStrictness">
+          <option value="strict">只改确定的数学错误（默认，最安全）</option>
+          <option value="loose">连「推断不严谨」也标出来并改正</option>
+        </select>
+      </label>
+      <p class="tiny">审校是自动工序：出稿前逐节复核公式与结论。发现问题时，正文会被改成正确写法，并在改过的地方留一个红色感叹号；「成稿预览」里「✨ AI 补充」旁边会出现红字，点它可以跳到对应位置，点感叹号看「与视频几分几秒不符」。改错有风险，所以每处改动都经过一次独立复核才会落地。</p>
       <label class="chk-line"><input type="checkbox" id="cfgIncludeTranscript"> PDF 里附完整讲稿</label>
       <label class="chk-line"><input type="checkbox" id="cfgIncludeBoardImages"> PDF 里插入板书配图</label>
       <label class="chk-line"><input type="checkbox" id="cfgIncludeBoardTimeline"> PDF 里附板书全时间线</label>

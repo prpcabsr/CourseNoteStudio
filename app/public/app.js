@@ -988,9 +988,11 @@ function drawMarginNotesInner() {
   ];
   for (const { kind, it } of queue) {
     const isAudit = kind === 'audit';
-    const target = isAudit ? findElementByText(doc, it.anchor) : findAnchorElement(doc, it);
+    // 审校项的正文已经被换成「改对后的句子」，所以按 fixed 定位（原句已经不在成稿里了）
+    const locateText = isAudit ? it.fixed || it.anchor : it.anchor;
+    const target = isAudit ? findElementByText(doc, locateText) : findAnchorElement(doc, it);
     if (!target) continue;
-    const key = suppKey(it.anchor);
+    const key = suppKey(locateText);
     const hit = anchorRange(doc, target, key);
     const anchorRect = hit ? hit.rect : target.getBoundingClientRect();
     let top = snapTop(anchorRect.top + win.scrollY + Math.min(10, Math.max(0, anchorRect.height / 2 - 8)));
@@ -1007,7 +1009,12 @@ function drawMarginNotesInner() {
     note.style.setProperty('--supp-size', getComputedStyle(document.documentElement).getPropertyValue('--supp-size').trim());
     note.style.setProperty('--supp-color', color);
     if (isAudit) {
-      note.innerHTML = `<h5><span class="err-flag">!</span> ${esc(it.title || '可能有问题')}</h5><div class="t">${esc((it.detail || '').slice(0, 220))}</div>`;
+      // 批注第一句必须是「与视频几分几秒不符合」，后面再解释
+      const head = it.videoTime ? `与视频 ${it.videoTime} 不符` : '此处与视频不符';
+      note.innerHTML =
+        `<h5><span class="err-flag">!</span> ${esc(head)}</h5>` +
+        `<div class="t">${esc((it.detail || '').slice(0, 220))}</div>` +
+        (it.videoQuote ? `<div class="t" style="opacity:.75;font-size:.92em;margin-top:4px">老师原话：「${esc(it.videoQuote.slice(0, 90))}」</div>` : '');
     } else {
       note.innerHTML = `<h5>${esc(it.title || '补充')}</h5><div class="t">${it.shortHtml || esc(it.short || '')}</div>
       <a data-supp="${made}">了解更多 →</a>`;
@@ -1134,12 +1141,12 @@ function showErrCard(doc, el) {
   card.innerHTML = `
     <div class="ec-head">
       <span class="err-flag">!</span>
-      <b>${esc(item?.title || 'AI 审校提示')}</b>
+      <b>${esc(item?.videoTime ? `与视频 ${item.videoTime} 不符` : '此处与视频不符')}</b>
       <button class="ec-close" title="关闭">✕</button>
     </div>
-    ${item?.anchor ? `<div class="ec-quote">原文：${esc(item.anchor.slice(0, 90))}</div>` : ''}
-    <div class="ec-body">${esc(item?.detail || '这一处被 AI 审校标记为可能有实质性问题。')}</div>
-    <div class="ec-foot">来自 AI 审校 · 成稿附录里有全部问题清单</div>`;
+    <div class="ec-body">${esc(item?.detail || '这一处已由 AI 审校按视频更正。')}</div>
+    ${item?.videoQuote ? `<div class="ec-quote">老师原话：「${esc(item.videoQuote)}」</div>` : ''}
+    <div class="ec-foot">正文已经改成正确写法了 · 附录里记着这条的出处</div>`;
   card.querySelector('.ec-close').onclick = () => card.remove();
 
   // 放在红标右边；右边放不下就放左边；上下夹在页面内
@@ -1933,6 +1940,7 @@ async function openDrawer() {
   $('#cfgCookies').value = cfg.download.cookiesFromBrowser || '';
   $('#cfgCourse').value = cfg.output.courseName || '';
   $('#cfgAutoPdf').checked = !!cfg.output.autoPdf;
+  $('#cfgAuditStrictness').value = cfg.audit?.strictness === 'loose' ? 'loose' : 'strict';
   $('#cfgIncludeTranscript').checked = !!cfg.output.includeTranscript;
   $('#cfgIncludeBoardImages').checked = !!cfg.output.includeBoardImages;
   $('#cfgIncludeBoardTimeline').checked = !!cfg.output.includeBoardTimeline;
@@ -1956,6 +1964,7 @@ async function saveCfg() {
       imageWidth: Number($('#cfgImgWidth').value) || 1600,
     },
     download: { cookiesFromBrowser: $('#cfgCookies').value },
+    audit: { strictness: $('#cfgAuditStrictness').value },
     output: {
       courseName: $('#cfgCourse').value.trim(),
       autoPdf: $('#cfgAutoPdf').checked,
