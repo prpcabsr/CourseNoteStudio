@@ -37,6 +37,9 @@ const checks = [
   ['连线终点抬到行上沿（走行间空隙）', js.includes('anchorRect.top + win.scrollY - 3')],
   ['批注文字行高跟随格子', js.includes('line-height: var(--rule-h, 24px)')],
   ['全屏保留批注留白（不被清掉）', js.includes('body.ai-supp-on { padding-right: 300px !important; }')],
+  ['补充讲解里右键也能问 AI', js.includes("el.closest('.supp-item, .fs-detail-body')")],
+  ['AI 回答里右键可追问', js.includes("el.closest('.ai-msg')")],
+  ['全屏 iframe 也挂了右键菜单', js.includes("hookFrame($('#fsFrame'))")],
 ];
 
 let bad = 0;

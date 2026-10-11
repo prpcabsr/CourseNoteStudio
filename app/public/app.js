@@ -1177,6 +1177,28 @@ function contextFromSelection(sel, doc) {
   }
   // 板书卡片
   if (el.closest('.board-card')) return { text, host: el, section: null };
+  // 补充讲解页 / 全屏讲解面板：把这条补充的上下文带上，问起来更准
+  const supp = el.closest('.supp-item, .fs-detail-body');
+  if (supp) {
+    const title =
+      supp.querySelector('h4')?.textContent?.replace(/第\s*\d+\s*节[\s\S]*$/, '').trim() ||
+      $('#fsDetailTitle')?.textContent?.trim() ||
+      '';
+    return { text, host: el, section: title ? { title, text: (supp.innerText || '').slice(0, 3000) } : null };
+  }
+  // AI 面板里的回答：可以接着追问
+  if (el.closest('.ai-msg')) return { text, host: el, section: { title: 'AI 对话', text: (el.closest('#aiThread')?.innerText || '').slice(0, 3000) } };
+  // 成稿里的其它位置：本讲概览、学习目标、目录、附录、板书时间线……
+  // 这些不在 .section 里，但只要在成稿页面上就应该能问，所以兜底到这里
+  const page = el.closest('.page') || (doc && doc !== document ? doc.body : null);
+  if (page) {
+    const sec = el.closest('.section');
+    const title =
+      sec?.querySelector('h2')?.innerText?.replace(/\s+/g, ' ').trim() ||
+      doc.querySelector('.cover h1')?.innerText?.trim() ||
+      '成稿';
+    return { text, host: el, section: { title, text: (sec || page).innerText.slice(0, 3000) } };
+  }
   return null;
 }
 
@@ -1258,22 +1280,26 @@ function setupContextMenu() {
   // 便于截图核对菜单样式（?ctxdemo=1 时在页面中间弹一次）
   window.__ctxDemo = () => openMenu(window.innerWidth / 2 - 90, 320, { text: '示例：选中的笔记文字会被放进输入框', section: null }, document);
 
-  // 成稿预览的 iframe 是同源的，也把右键接上
-  const frame = $('#previewFrame');
-  frame.addEventListener('load', () => {
-    try {
-      const d = frame.contentDocument;
-      if (!d) return;
-      d.addEventListener('contextmenu', (e) => {
-        const info = contextFromSelection(frame.contentWindow.getSelection(), d);
-        if (!info || !info.host || !info.host.contains(e.target)) return;
-        e.preventDefault();
-        const r = frame.getBoundingClientRect();
-        openMenu(r.left + e.clientX, r.top + e.clientY, info, d);
-      });
-      d.addEventListener('click', close);
-    } catch {}
-  });
+  // 成稿预览 / 全屏预览的 iframe 是同源的，也把右键接上
+  const hookFrame = (frame) => {
+    if (!frame) return;
+    frame.addEventListener('load', () => {
+      try {
+        const d = frame.contentDocument;
+        if (!d) return;
+        d.addEventListener('contextmenu', (e) => {
+          const info = contextFromSelection(frame.contentWindow.getSelection(), d);
+          if (!info || !info.host || !info.host.contains(e.target)) return;
+          e.preventDefault();
+          const r = frame.getBoundingClientRect();
+          openMenu(r.left + e.clientX, r.top + e.clientY, info, d);
+        });
+        d.addEventListener('click', close);
+      } catch {}
+    });
+  };
+  hookFrame($('#previewFrame'));
+  hookFrame($('#fsFrame'));
 }
 
 /** 给笔记/板书里的图片挂上「问 AI」 */
