@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>课程笔记工坊 · 视频 → PDF 课程笔记</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/api/assets/katex/katex.min.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎓</text></svg>">
+</head>
+<body>
+<div id="app">
+
+  <!-- ─────────────── 顶栏 ─────────────── -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">课</div>
+      <div class="brand-text">
+        <h1>课程笔记工坊</h1>
+        <p>看懂板书 · 听懂讲解 · 生成 PDF 课程笔记</p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="env-pills" id="envPills"></div>
+      <button class="btn ghost" id="btnSettings" title="环境与模型设置">
+        <span class="ico">⚙</span> 环境与模型
+      </button>
+      <button class="btn ghost icon-only" id="btnTheme" title="切换深浅色">◐</button>
+    </div>
+  </header>
+
+  <div class="body">
+    <!-- ─────────────── 左侧任务列表 ─────────────── -->
+    <aside class="sidebar" id="sidebar">
+      <button class="btn primary block" id="btnNew">＋ 新建笔记任务</button>
+      <div class="side-hint" id="sideHint">输入视频链接，或把视频文件拖到右侧</div>
+      <div class="proj-list" id="projList"></div>
+      <div class="sidebar-foot">
+        <div class="tiny">本地运行 · 视频不会上传</div>
+      </div>
+    </aside>
+    <div class="rs rs-side" id="rsSide" title="拖动调整任务栏宽度"></div>
+
+    <!-- ─────────────── 主区域 ─────────────── -->
+    <main class="main" id="main">
+
+      <!-- 首页 -->
+      <section class="view" id="viewHome">
+       <div class="view-inner">
+        <div class="hero">
+          <div class="hero-badge">INPUT · 视频链接</div>
+          <h2>把一节大学课程视频，变成一份完整的 PDF 笔记</h2>
+          <p class="hero-sub">同时“看”板书和“听”讲解。板书被擦掉之前会自动抢救保存，不会出现只记录最后一屏黑板的情况。</p>
+
+          <div class="input-row">
+            <input id="inputUrl" class="input big" type="text" spellcheck="false"
+                   placeholder="粘贴视频链接（B 站 / YouTube / 慕课…），或本地视频文件的完整路径">
+            <button class="btn primary big" id="btnStart">开始生成</button>
+          </div>
+          <div class="input-extra">
+            <label class="field"><span>课程名称（可选）</span>
+              <input id="inputCourse" class="input" type="text" placeholder="高等数学 · 第 12 讲">
+            </label>
+            <label class="field"><span>板书抓拍密度</span>
+              <select id="selDensity" class="input select">
+                <option value="sparse">精简（省时间）</option>
+                <option value="balanced" selected>均衡（推荐）</option>
+                <option value="dense">密集（最完整）</option>
+              </select>
+            </label>
+            <div class="field checks">
+              <span>输出选项</span>
+              <div class="chk-row">
+                <label class="chk"><input type="checkbox" id="chkTranscript" checked> 附课堂讲稿</label>
+                <label class="chk"><input type="checkbox" id="chkCrop" checked> 自动裁出板书</label>
+              </div>
+            </div>
+          </div>
+          <div class="drop-hint" id="dropHint">也可以直接把视频文件拖拽到这里</div>
+          <div class="alert hidden" id="homeAlert"></div>
+        </div>
+
+        <div class="grid3">
+          <div class="card step">
+            <div class="step-no">01</div>
+            <h3>逐秒追踪板书</h3>
+            <p>每秒比对画面变化，定位老师“停笔”的瞬间，抓下这一屏最完整的板书；一旦检测到擦除动作，<b>擦除前那一屏早已被保存</b>。</p>
+          </div>
+          <div class="card step">
+            <div class="step-no">02</div>
+            <h3>听懂课堂讲解</h3>
+            <p>本地语音识别把讲课转成带时间戳的文字，专业术语自动修正，与板书按时间轴对齐。</p>
+          </div>
+          <div class="card step">
+            <div class="step-no">03</div>
+            <h3>整理成课程笔记</h3>
+            <p>把讲解与板书交给大模型按逻辑重组：定义、推导、例题、易错点，公式用 LaTeX 排版，输出 PDF。</p>
+          </div>
+        </div>
+
+        <div class="card map">
+          <h3>板书防丢失机制</h3>
+          <div class="map-row">
+            <div class="map-item"><b>动→静</b><span>停笔瞬间抓拍</span></div>
+            <div class="map-arrow">→</div>
+            <div class="map-item"><b>擦除检测</b><span>大面积墨迹消失</span></div>
+            <div class="map-arrow">→</div>
+            <div class="map-item"><b>分块归档</b><span>每块板书独立编号</span></div>
+            <div class="map-arrow">→</div>
+            <div class="map-item"><b>长板书兜底</b><span>不停笔也定时抓</span></div>
+          </div>
+          <p class="tiny">识别到的每一屏板书都会保留原文和截图，PDF 附录里可以查到“第几块板书、第几分钟、之后是否被擦掉”。</p>
+        </div>
+       </div><!-- /view-inner -->
+      </section>
+
+      <!-- 任务视图 -->
+      <section class="view hidden" id="viewProject">
+       <div class="proj-main">
+        <div class="proj-head">
+          <div class="ph-left">
+            <h2 id="pvTitle">任务</h2>
+            <div class="ph-meta" id="pvMeta"></div>
+          </div>
+          <div class="ph-actions">
+            <button class="btn primary" id="btnRun">开始 / 继续</button>
+            <button class="btn" id="btnCancel">取消</button>
+            <button class="btn" id="btnReThink" title="保留已有的板书识别结果，只重新整理笔记">重写笔记</button>
+            <button class="btn" id="btnReCapture" title="用当前的抓拍策略重新扫描画面、重新识别板书（会重新调用视觉模型）">重抓板书</button>
+            <button class="btn" id="btnReRender" title="不调用模型，只按当前版式与公式规范重新生成 PDF（修公式渲染用这个）">重新排版</button>
+            <a class="btn success hidden" id="btnPdf" target="_blank">打开 PDF</a>
+            <button class="btn ghost danger" id="btnDelete">删除</button>
+          </div>
+        </div>
+
+        <div class="progress-wrap">
+          <div class="steps" id="steps"></div>
+          <div class="bar-row">
+            <div class="bar"><div class="bar-in" id="barIn"></div></div>
+            <div class="bar-label" id="barLabel">等待开始</div>
+          </div>
+        </div>
+
+        <div class="tabs" id="tabs">
+          <button class="tab active" data-tab="board">实时板书流<span class="badge" id="badgeBoard">0</span></button>
+          <button class="tab" data-tab="notes">笔记章节<span class="badge" id="badgeNotes">0</span></button>
+          <button class="tab" data-tab="preview">成稿预览</button>
+          <button class="tab" data-tab="logs">运行日志</button>
+        </div>
+
+        <div class="tab-body">
+          <div class="pane" data-pane="board">
+            <div class="pane-hint">每识别完一屏板书就会出现在这里。带 <span class="tag erase">擦除前抢救</span> 标记的，是老师擦掉之前保存下来的完整板书。</div>
+            <div class="board-grid" id="boardGrid"></div>
+            <div class="empty" id="boardEmpty">还没有板书记录。点击「开始 / 继续」后，这里会实时出现识别结果。</div>
+          </div>
+
+          <div class="pane hidden" data-pane="notes">
+            <div class="note-list" id="noteList"></div>
+            <div class="empty" id="notesEmpty">笔记章节会在整理阶段陆续出现。</div>
+          </div>
+
+          <div class="pane hidden" data-pane="preview">
+            <div class="preview-bar">
+              <span id="previewHint">成稿生成后可在此预览（与 PDF 完全一致的排版）。</span>
+              <span class="spacer"></span>
+              <a class="btn small hidden" id="linkHtml" target="_blank">在新窗口打开</a>
+              <a class="btn small hidden" id="linkMd">下载 Markdown</a>
+            </div>
+            <iframe id="previewFrame" class="preview-frame hidden"></iframe>
+          </div>
+
+          <div class="pane hidden" data-pane="logs">
+            <div class="log-toolbar">
+              <label class="chk"><input type="checkbox" id="chkAutoScroll" checked> 自动滚动</label>
+              <button class="btn small ghost" id="btnClearLog">清空显示</button>
+            </div>
+            <pre class="logs" id="logs"></pre>
+          </div>
+        </div>
+       </div><!-- /proj-main -->
+
+        <!-- ─────────── AI 问答面板（常驻右侧，可拖拽宽度、可收起） ─────────── -->
+        <div class="rs rs-ai" id="rsAi" title="拖动调整 AI 面板宽度"></div>
+        <aside class="ai-dock" id="aiDock">
+          <div class="ai-head">
+            <span class="ai-title">🤖 问 AI</span>
+            <span class="ai-engine" id="aiEngine"></span>
+            <span class="spacer"></span>
+            <button class="btn ghost icon-only" id="btnAiClear" title="清空对话">🗑</button>
+            <button class="btn ghost icon-only" id="btnAiClose" title="收起面板（阅读更宽）">⇥</button>
+          </div>
+
+          <div class="ai-tip">
+            在笔记里<b>划选文字</b>后<b>点右键 → 询问 AI</b>；板书图片右上角也有「问 AI」按钮。
+          </div>
+
+          <div class="ai-thread" id="aiThread">
+            <div class="ai-empty" id="aiEmpty">还没有对话。<br>选一段笔记内容，再问它「这是什么意思」「帮我推导一下」。</div>
+          </div>
+
+          <div class="ai-compose">
+            <div class="ai-chips" id="aiChips"></div>
+            <div class="ai-input-row">
+              <textarea id="aiInput" class="input" rows="2" placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+              <button class="btn primary" id="btnAiSend" title="发送">发送</button>
+            </div>
+            <div class="ai-actions">
+              <span class="tiny" id="aiRoute">选中的文字 → 文本模型；带图片 → 视觉模型</span>
+            </div>
+          </div>
+        </aside>
+        <button class="ai-rail hidden" id="aiRail" title="展开 AI 问答面板">🤖<span>问 AI</span></button>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- ─────────────── 设置抽屉 ─────────────── -->
+<div class="drawer-mask hidden" id="drawerMask"></div>
+<aside class="drawer hidden" id="drawer">
+  <div class="drawer-head">
+    <h2>环境与模型</h2>
+    <button class="btn ghost icon-only" id="btnCloseDrawer">✕</button>
+  </div>
+  <div class="drawer-body">
+    <div id="envSummary" class="env-summary"></div>
+
+    <h3 class="drawer-h">① 运行组件</h3>
+    <p class="tiny" id="installHint">正在检查组件状态…</p>
+    <div class="res-list" id="resList"></div>
+    <div class="row gap">
+      <button class="btn primary" id="btnInstallCore">一键安装推荐组件</button>
+      <button class="btn" id="btnInstallAll">安装全部（含备用模型）</button>
+    </div>
+
+    <h3 class="drawer-h">② 文本模型（负责“想”）</h3>
+    <div class="form-grid">
+      <label>接口地址<input class="input" id="cfgLlmBase"></label>
+      <label>模型名<input class="input" id="cfgLlmModel"></label>
+      <label>API Key<input class="input" id="cfgLlmKey" type="password" placeholder="留空则使用本机已保存的 DSH DeepSeek Key"></label>
+      <label class="chk-line"><input type="checkbox" id="cfgUseDsh"> 优先使用本机 DSH 已保存的 Key</label>
+    </div>
+
+    <h3 class="drawer-h">③ 视觉模型（负责“看”）</h3>
+    <div class="form-grid">
+      <label>识别方式
+        <select class="input" id="cfgVlmMode">
+          <option value="local">本地模型（离线，免费）</option>
+          <option value="openai-compatible">外部接口（更快，需自备 Key）</option>
+        </select>
+      </label>
+      <label>本地模型
+        <select class="input" id="cfgVlmModel"></select>
+      </label>
+      <label>外部接口地址<input class="input" id="cfgVlmEndpoint" placeholder="https://dashscope.aliyuncs.com/compatible-mode"></label>
+      <label>外部模型名<input class="input" id="cfgVlmModelName" placeholder="qwen-vl-max-latest"></label>
+      <label>外部 Key<input class="input" id="cfgVlmKey" type="password"></label>
+      <label>GPU 层数（越大越用显卡）<input class="input" id="cfgVlmGpu" type="number" min="0" max="999"></label>
+    </div>
+
+    <h3 class="drawer-h">④ 抓拍与输出</h3>
+    <div class="form-grid">
+      <label>默认抓拍密度
+        <select class="input" id="cfgDensity">
+          <option value="sparse">精简</option>
+          <option value="balanced">均衡</option>
+          <option value="dense">密集</option>
+        </select>
+      </label>
+      <label>最密抓拍上限（屏）<input class="input" id="cfgMaxSnap" type="number" min="20" max="1200"></label>
+      <label>图片宽度（像素）<input class="input" id="cfgImgWidth" type="number" min="640" max="3000"></label>
+      <label>浏览器 Cookie（B 站高清需要，可留空）
+        <select class="input" id="cfgCookies">
+          <option value="">不使用</option>
+          <option value="edge">Edge</option>
+          <option value="chrome">Chrome</option>
+          <option value="firefox">Firefox</option>
+        </select>
+      </label>
+      <label>课程名称（写入 PDF 封面）<input class="input" id="cfgCourse"></label>
+      <label class="chk-line"><input type="checkbox" id="cfgIncludeTranscript"> PDF 里附完整讲稿</label>
+      <label class="chk-line"><input type="checkbox" id="cfgIncludeBoardImages"> PDF 里插入板书配图</label>
+      <label class="chk-line"><input type="checkbox" id="cfgIncludeBoardTimeline"> PDF 里附板书全时间线</label>
+    </div>
+    <p class="tiny">板书截图与时间线默认只放在网页「笔记章节」里看，这样 PDF 更干净；需要打印出来才勾选上面的选项。</p>
+
+    <div class="row gap">
+      <button class="btn primary" id="btnSaveCfg">保存设置</button>
+      <button class="btn" id="btnStopVlm">停止视觉引擎（释放显存）</button>
+    </div>
+    <p class="tiny" id="saveHint"></p>
+  </div>
+</aside>
+
+<div class="toasts" id="toasts"></div>
+<script src="/api/assets/katex/katex.min.js"></script>
+<script src="/api/assets/katex/auto-render.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

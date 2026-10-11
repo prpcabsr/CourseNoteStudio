@@ -1,0 +1,49 @@
+{
+  "name": "course-note-studio",
+  "version": "1.0.0",
+  "private": false,
+  "type": "module",
+  "description": "课程笔记工坊 —— 把大学课程视频变成完整、结构化、可打印的 PDF 课程笔记（板书逐帧追踪 + 本地语音识别 + 大模型整理）",
+  "main": "app/main.mjs",
+  "license": "MIT",
+  "keywords": [
+    "course-notes",
+    "lecture-notes",
+    "video-to-notes",
+    "whisper-alternative",
+    "asr",
+    "vlm",
+    "llama.cpp",
+    "sherpa-onnx",
+    "katex",
+    "pdf",
+    "blackboard",
+    "ocr"
+  ],
+  "scripts": {
+    "start": "node app/main.mjs serve",
+    "fetch": "node app/fetch-tools.mjs --all",
+    "doctor": "node app/main.mjs doctor",
+    "fix-latex": "node app/main.mjs fix-latex",
+    "test:latex": "node tests/latex-check.mjs",
+    "test:latex-heal": "node tests/latex-heal-check.mjs",
+    "test:detect": "node tests/run-probe.mjs",
+    "test:parse": "node tests/parse-check.mjs",
+    "test:bare-latex": "node tests/bare-latex-check.mjs",
+    "test:autoclose": "node tests/autoclose-check.mjs",
+    "pdf:pages": "node tests/pdf-render.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "os": [
+    "win32"
+  ],
+  "dependencies": {
+    "katex": "^0.16.47",
+    "marked": "^15.0.12"
+  },
+  "devDependencies": {
+    "mupdf": "^1.26.4"
+  }
+}

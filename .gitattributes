@@ -1,0 +1,13 @@
+# 统一换行符：源码一律用 LF，Windows 的 .bat 保持 CRLF
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 图片按二进制处理
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+
+# 让 GitHub 的语言统计认得出这是 JavaScript 项目，而不是把 HTML/CSS 算成主体
+app/public/*.js linguist-language=JavaScript

@@ -1,0 +1,23 @@
+# 依赖
+node_modules/
+
+# 运行时自动下载的组件与模型（3～4 GB，首次运行会自动下载，不要提交）
+tools/
+models/
+
+# 你自己的数据：下载的视频、转写稿、板书截图、生成的 PDF、配置与 API Key
+data/
+
+# 打包产物与日志
+dist/
+logs/
+*.log
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.tmp
