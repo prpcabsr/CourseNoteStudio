@@ -51,6 +51,44 @@ function sectionText(md, limit = 1800) {
     .slice(0, limit);
 }
 
+/**
+ * 把模型给的 anchor 对上正文。
+ * 精确匹配 → 忽略空白的匹配 → 退一步拿前几个字找那一行，
+ * 都对不上才返回空（界面会把批注落到该节第一段）。
+ */
+function locateAnchor(markdown, rawAnchor) {
+  const plain = String(markdown || '');
+  const anchor = String(rawAnchor || '').trim();
+  if (!anchor) return '';
+  if (plain.includes(anchor)) return anchor;
+
+  const compact = anchor.replace(/\s+/g, '');
+  const lines = plain.split('\n');
+  // 按「去掉空白」后的偏移把位置映射回原行
+  const sliceFrom = (line, compactIdx, len) => {
+    let k = 0;
+    let seen = 0;
+    while (k < line.length && seen < compactIdx) {
+      if (!/\s/.test(line[k])) seen++;
+      k++;
+    }
+    return line.slice(k, k + Math.max(6, len)).trim();
+  };
+  if (compact.length >= 4) {
+    for (const line of lines) {
+      const i = line.replace(/\s+/g, '').indexOf(compact);
+      if (i >= 0) return sliceFrom(line, i, anchor.length);
+    }
+    // 模糊：拿开头几个字找那一行（模型可能改了几个字或标点）
+    const head = compact.slice(0, 8);
+    for (const line of lines) {
+      const i = line.replace(/\s+/g, '').indexOf(head);
+      if (i >= 0) return sliceFrom(line, i, anchor.length);
+    }
+  }
+  return '';
+}
+
 export async function generateSupplements({ projectId, cfg, onEvent = () => {} }) {
   const P = projectPaths(projectId);
   const doc = readJson(path.join(P.work, 'doc.json'));
@@ -100,21 +138,7 @@ export async function generateSupplements({ projectId, cfg, onEvent = () => {} }
     const sec = doc.sections[n - 1];
     if (!sec) continue;
     const plain = String(sec.markdown || '');
-    let anchor = String(it.anchor || '').trim();
-    // anchor 里的空格/换行可能与正文不完全一致，宽松匹配一下
-    if (anchor && !plain.includes(anchor)) {
-      const compact = anchor.replace(/\s+/g, '');
-      const hit = plain
-        .split('\n')
-        .find((line) => line.replace(/\s+/g, '').includes(compact));
-      if (hit) {
-        const i = hit.replace(/\s+/g, '').indexOf(compact);
-        // 从原行里切回对应片段（按去空白后的偏移近似定位）
-        anchor = hit.trim().slice(0, Math.max(8, Math.min(hit.trim().length, anchor.length + 4)));
-      } else {
-        anchor = '';
-      }
-    }
+    const anchor = locateAnchor(plain, it.anchor);
     const short = String(it.short || '').trim();
     const more = String(it.more || '').trim();
     if (!short) continue;
@@ -122,6 +146,7 @@ export async function generateSupplements({ projectId, cfg, onEvent = () => {} }
       section: n,
       sectionTitle: String(sec.title || '').trim(),
       anchor,
+      anchorRaw: String(it.anchor || '').trim(), // 留档：模型原话，方便排查为什么对不上
       title: String(it.title || '').trim(),
       short,
       // 提前在服务端把公式排好版，前端（尤其是成稿 iframe 里）直接插入即可
@@ -140,6 +165,26 @@ export async function generateSupplements({ projectId, cfg, onEvent = () => {} }
 
 export function loadSupplements(projectId) {
   const P = projectPaths(projectId);
-  if (!fs.existsSync(path.join(P.work, 'supplements.json'))) return { items: [] };
-  return readJson(path.join(P.work, 'supplements.json')) || { items: [] };
+  const file = path.join(P.work, 'supplements.json');
+  if (!fs.existsSync(file)) return { items: [] };
+  const data = readJson(file) || { items: [] };
+  // 历史版本生成的补充没有预排版的 HTML，读取时补上，
+  // 这样旧任务不用重新生成也能正常显示公式（否则会看到 $z_0$ 这种源码）
+  let patched = false;
+  for (const it of data.items || []) {
+    if (!it.shortHtml && it.short) {
+      it.shortHtml = inlineMathHtml(it.short);
+      patched = true;
+    }
+    if (!it.moreHtml && it.more) {
+      it.moreHtml = mdToHtml(it.more).replace(/^<p>|<\/p>\s*$/g, '');
+      patched = true;
+    }
+  }
+  if (patched) {
+    try {
+      writeJson(file, data);
+    } catch {}
+  }
+  return data;
 }

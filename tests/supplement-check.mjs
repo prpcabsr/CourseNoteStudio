@@ -49,4 +49,19 @@ if (miss) {
 } else {
   console.log('✓ 所有锚点都能在成稿里准确定位');
 }
-process.exit(0);
+
+// 公式必须已经排版好：旧版本生成的补充没有 shortHtml/moreHtml，
+// 读取时会被自动补上；这里确认补完之后不再有裸 LaTeX
+let raw = 0;
+for (const it of sup.items) {
+  for (const field of ['shortHtml', 'moreHtml']) {
+    const html = it[field] || '';
+    const plain = html.replace(/<[^>]+>/g, '');
+    if (/\$[a-zA-Z\\]/.test(plain)) {
+      raw++;
+      console.log(`✗ ${it.title} 的 ${field} 里还有裸公式：${plain.slice(0, 60)}`);
+    }
+  }
+}
+if (!raw) console.log(`✓ ${sup.items.length} 条补充的公式均已排版（含旧数据自动补渲染）`);
+process.exit(miss || raw ? 1 : 0);
