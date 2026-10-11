@@ -527,6 +527,30 @@ a { color: var(--accent); text-decoration: none; }
 .fs-rail span { writing-mode: vertical-rl; font-size: 12px; letter-spacing: .12em; color: var(--text-2); }
 .fs-rail:hover { background: var(--accent-soft); }
 
+/* 全屏里的「了解更多」讲解面板：从右侧滑出，盖在成稿上 */
+.fs-detail {
+  position: absolute; right: 0; top: 0; bottom: 0; width: min(460px, 42vw); z-index: 6;
+  background: var(--panel); border-left: 1px solid var(--line);
+  box-shadow: -14px 0 34px -20px rgba(10, 20, 40, .45);
+  display: flex; flex-direction: column;
+  animation: fsDetailIn .18s ease-out;
+}
+@keyframes fsDetailIn { from { transform: translateX(24px); opacity: .4; } to { transform: none; opacity: 1; } }
+.fs-detail-head { display: flex; align-items: center; gap: 8px; padding: 11px 14px; border-bottom: 1px solid var(--line); flex: 0 0 auto; flex-wrap: wrap; }
+.fs-detail-head b { font-size: 14px; }
+.fs-detail-body { flex: 1; overflow-y: auto; padding: 16px 18px 28px; }
+.fs-detail-body .short {
+  font-family: var(--supp-font, var(--doc-font)); font-size: var(--supp-size, 15px); line-height: 1.9;
+  color: var(--supp-color, #b45309); border-left: 3px solid var(--supp-color, #b45309);
+  padding-left: 10px; margin-bottom: 14px;
+}
+.fs-detail-body .more { font-size: 14px; line-height: 1.9; color: var(--text-2); }
+.fs-detail-body .more .katex-display { margin: 10px 0; overflow-x: auto; }
+.fs-detail-body .anchor {
+  margin-top: 18px; padding-top: 10px; border-top: 1px dashed var(--line);
+  font-size: 12px; color: var(--text-3); line-height: 1.7;
+}
+
 /* 程序已退出时的提示 */
 .server-down { position: fixed; inset: 0; z-index: 95; background: rgba(10, 16, 26, .55); backdrop-filter: blur(3px); display: grid; place-items: center; padding: 24px; }
 .sd-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 24px 26px; max-width: 460px; box-shadow: var(--shadow); text-align: center; }

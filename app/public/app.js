@@ -904,6 +904,7 @@ function drawMarginNotesInner() {
   layer.appendChild(svg);
 
   const isDark = document.documentElement.dataset.theme === 'dark';
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--supp-color').trim() || '#b45309';
   // 正文的格子高度：批注的落点也对齐到格子，看起来就像写在同一条横线上
   const ruleH = parseFloat(getComputedStyle(doc.documentElement).getPropertyValue('--rule-h')) || 0;
   const snapTop = (y) => (ruleH > 4 ? Math.max(0, Math.floor(y / ruleH) * ruleH + 2) : y);
@@ -912,9 +913,14 @@ function drawMarginNotesInner() {
   for (const it of supp.items) {
     const target = findAnchorElement(doc, it);
     if (!target) continue;
-    const r = target.getBoundingClientRect();
-    let top = snapTop(r.top + win.scrollY + Math.min(18, Math.max(0, r.height / 2 - 10)));
-    const left = r.right + win.scrollX + 34;
+    const key = suppKey(it.anchor);
+    const hit = anchorRange(doc, target, key);
+    // 优先用「那一句话」的坐标；拿不到才退回整个段落的坐标
+    const anchorRect = hit ? hit.rect : target.getBoundingClientRect();
+    const base = target.getBoundingClientRect();
+    let top = snapTop(anchorRect.top + win.scrollY + Math.min(12, Math.max(0, anchorRect.height / 2 - 8)));
+    void base;
+    const left = anchorRect.right + win.scrollX + 34;
 
     const note = doc.createElement('div');
     note.className = 'note' + (isDark ? ' dark' : '');
@@ -928,6 +934,11 @@ function drawMarginNotesInner() {
       <a data-supp="${made}">了解更多 →</a>`;
     note.querySelector('a').onclick = (ev) => {
       ev.preventDefault();
+      // 全屏里就地弹讲解面板（切标签页会被全屏盖住，用户会以为「点了没反应」）
+      if (!$('#fsOverlay').classList.contains('hidden')) {
+        showFsDetail(it);
+        return;
+      }
       activateTab('supp');
       const card = $$('#suppList .supp-item')[supp.items.indexOf(it)];
       if (card) {
@@ -949,21 +960,34 @@ function drawMarginNotesInner() {
     }
     placed.push({ left, top, h });
 
-    // 箭头：从批注指向原文
+    // 箭头：从批注左边缘一直伸到「那一句话」的右边，并在句子下面画一条下划线
     const fromX = left - 6;
-    const fromY = top + 16;
-    const toX = r.right + win.scrollX + 6;
-    const toY = r.top + win.scrollY + Math.min(r.height / 2, 16);
-    const midX = (fromX + toX) / 2;
+    const fromY = top + 14;
+    const toX = anchorRect.right + win.scrollX + 8;
+    const toY = anchorRect.top + win.scrollY + anchorRect.height / 2;
+    const midX = fromX - Math.max(28, Math.min(160, (fromX - toX) * 0.45));
     const p = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
     p.setAttribute('d', `M ${fromX} ${fromY} C ${midX} ${fromY}, ${midX} ${toY}, ${toX} ${toY}`);
     p.setAttribute('fill', 'none');
-    p.setAttribute('stroke', getComputedStyle(document.documentElement).getPropertyValue('--supp-color').trim() || '#d97706');
-    p.setAttribute('stroke-width', '1.5');
-    p.setAttribute('stroke-dasharray', '5 3');
+    p.setAttribute('stroke', accent);
+    p.setAttribute('stroke-width', '1.4');
+    p.setAttribute('stroke-dasharray', '6 3');
     p.setAttribute('marker-end', 'url(#aiArrowHead)');
-    p.setAttribute('opacity', '.85');
+    p.setAttribute('opacity', '.9');
     svg.appendChild(p);
+    // 句子下面画下划线，一眼看出箭头指的是哪一句
+    const marks = hit ? hit.rects : [anchorRect];
+    for (const mr of marks) {
+      const line = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
+      const y = mr.bottom + win.scrollY + 1.5;
+      line.setAttribute('d', `M ${mr.left + win.scrollX} ${y} L ${mr.right + win.scrollX} ${y}`);
+      line.setAttribute('stroke', accent);
+      line.setAttribute('stroke-width', '1.5');
+      line.setAttribute('stroke-dasharray', '4 2');
+      line.setAttribute('opacity', '.75');
+      line.setAttribute('fill', 'none');
+      svg.appendChild(line);
+    }
     made++;
   }
   svg.setAttribute('height', Math.max(doc.body.scrollHeight, 100));
@@ -974,7 +998,47 @@ function drawMarginNotesInner() {
 }
 
 /**
- * 在成稿里找到 anchor 所在的段落元素。
+ * 在元素里精确定位 anchor 那段文字（用 Range 拿到那一句的坐标）。
+ * 直接拿段落的 rect 是不行的：块级元素的右边缘是整栏的右边缘，
+ * 离那句话很远，箭头就成了短短一小截。
+ */
+function anchorRange(doc, scopeEl, key) {
+  if (!key || key.length < 2 || !scopeEl) return null;
+  const walker = doc.createTreeWalker(scopeEl, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  let n;
+  while ((n = walker.nextNode())) {
+    if (n.parentElement && n.parentElement.closest('.katex')) continue; // 跳过公式内部文本
+    if (n.nodeValue) nodes.push(n);
+  }
+  const map = [];
+  let compact = '';
+  for (const node of nodes) {
+    const v = node.nodeValue;
+    for (let i = 0; i < v.length; i++) {
+      if (/\s/.test(v[i])) continue;
+      map.push({ node, offset: i });
+      compact += v[i];
+    }
+  }
+  const at = compact.indexOf(key);
+  if (at < 0) return null;
+  const a = map[at];
+  const b = map[Math.min(map.length - 1, at + key.length - 1)];
+  try {
+    const range = doc.createRange();
+    range.setStart(a.node, a.offset);
+    range.setEnd(b.node, b.offset + 1);
+    const rects = [...range.getClientRects()].filter((r) => r.width > 1 && r.height > 1);
+    const rect = range.getBoundingClientRect();
+    return rects.length ? { rect, rects } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 在元素里找到 anchor 所在的段落元素。
  * 注意：成稿里的公式已经被 KaTeX 渲染成 DOM，$f(x)$ 在页面上不是这几个字符了，
  * 所以两边都去掉公式，只拿「普通文字」比对。
  */
@@ -1354,6 +1418,27 @@ function exitFullscreenPreview() {
   $('#fsFrame').src = 'about:blank';
   document.body.style.overflow = '';
   fsAiShow(false);
+  hideFsDetail();
+}
+
+/** 全屏下点「了解更多」：从右侧滑出这个知识点的详细讲解，不用退出全屏。 */
+function showFsDetail(it) {
+  if (!it) return;
+  $('#fsDetailTitle').textContent = it.title || '补充讲解';
+  $('#fsDetailWhere').textContent = `第 ${it.section} 节${it.sectionTitle ? ' · ' + it.sectionTitle : ''}`;
+  $('#fsDetailBody').innerHTML = `
+    <div class="short">${it.shortHtml || esc(it.short || '')}</div>
+    <div class="more">${it.moreHtml || mdSafe(it.more || '')}</div>
+    ${it.anchor ? `<div class="anchor">这段批注挂在原文：${esc(it.anchor)}</div>` : ''}`;
+  renderMath($('#fsDetailBody'));
+  $('#fsDetailBody').scrollTop = 0;
+  // 讲解面板和 AI 侧边栏同时开太挤，开讲解就收起 AI
+  fsAiShow(false);
+  $('#fsDetail').classList.remove('hidden');
+}
+
+function hideFsDetail() {
+  $('#fsDetail').classList.add('hidden');
 }
 
 /** 全屏里把 AI 面板搬进侧边栏 / 搬回原位。 */
@@ -1804,8 +1889,18 @@ function bind() {
   $('#fsZoomIn').onclick = () => setFsZoom(Math.min(2.5, (fsZoom || 1) + 0.1));
   $('#fsZoomOut').onclick = () => setFsZoom(Math.max(0.4, (fsZoom || 1) - 0.1));
   $('#fsZoomFit').onclick = () => fsZoomFit();
+  $('#fsDetailClose').onclick = () => hideFsDetail();
+  $('#fsDetailAll').onclick = () => {
+    hideFsDetail();
+    exitFullscreenPreview();
+    activateTab('supp');
+  };
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !$('#fsOverlay').classList.contains('hidden')) exitFullscreenPreview();
+    if (e.key !== 'Escape') return;
+    // Esc 先关讲解面板，再关 AI 侧边栏，最后才退出全屏
+    if (!$('#fsDetail')?.classList.contains('hidden')) return hideFsDetail();
+    if (!$('#fsAi')?.classList.contains('hidden')) return fsAiShow(false);
+    if (!$('#fsOverlay').classList.contains('hidden')) exitFullscreenPreview();
   });
 
   // AI 补充
@@ -1897,6 +1992,8 @@ async function install(ids) {
         setTimeout(() => {
           enterFullscreenPreview();
           if (params.get('fsai') === '1') setTimeout(() => fsAiShow(true), 800);
+          const fd = params.get('fsdetail');
+          if (fd !== null) setTimeout(() => showFsDetail(supp.items[Number(fd) || 0]), 1400);
         }, 900);
       } else if (n < 20) setTimeout(() => tryFs(n + 1), 300);
     };

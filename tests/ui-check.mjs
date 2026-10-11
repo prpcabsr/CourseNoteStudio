@@ -27,6 +27,11 @@ const checks = [
   ['外观改动自动存为默认', js.includes('scheduleLookSave')],
   ['外观 CSS 由服务端统一提供', js.includes('/api/look.css')],
   ['预览与 PDF 共用同一份外观 CSS', js.includes('fetchLookCss')],
+  ['全屏「了解更多」有就地讲解面板', html.includes('id="fsDetail"') && js.includes('showFsDetail')],
+  ['Esc 逐层关闭（讲解→AI→全屏）', /hideFsDetail\(\)[\s\S]{0,90}fsAiShow\(false\)[\s\S]{0,90}exitFullscreenPreview/.test(js)],
+  ['批注箭头指向具体句子（Range 定位）', js.includes('anchorRange') && js.includes('getClientRects')],
+  ['句子下面画下划线标记', js.includes('一眼看出箭头指的是哪一句')],
+  ['全屏铺满底纸（不再做成卡片）', !js.includes('e9edf3')],
 ];
 
 let bad = 0;
