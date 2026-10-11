@@ -117,52 +117,89 @@ export const FONT_LABELS = {
 export const PAPER_STYLES = {
   white: { bg: '#ffffff', ink: '#1a1a1a', sub: '#5b6472', rule: '' },
   cream: { bg: '#fbf5e6', ink: '#23201a', sub: '#6b6250', rule: '' },
-  lined: { bg: '#fdf9ee', ink: '#23201a', sub: '#6b6250', rule: '#e6dcc4', ruleH: 34, ruleOffset: 26 },
+  lined: { bg: '#fdf9ee', ink: '#23201a', sub: '#6b6250', rule: '#e6dcc4' },
 };
+
+/**
+ * 格子高度（横线间距）由正文字号算出来，行距与字号永远匹配。
+ * 改字号 → 格子跟着变，每行字照样落在横线上。
+ */
+export function ruleHeight(fontSizePt) {
+  const px = (Number(fontSizePt) > 5 ? Number(fontSizePt) : 10.8) * (96 / 72);
+  return Math.max(18, Math.round(px * 1.7));
+}
+
+/**
+ * 「外观 CSS」：纸张底色、字体、字号、横线格子。
+ * 生成成稿时内联进 HTML，界面上改外观时也用同一份（服务端 /api/look.css 提供），
+ * 保证「成稿预览 / 全屏预览 / PDF」三处完全一致。
+ */
+export function lookCss({ paperStyle = 'white', font = 'system', fontSize = 10.8, textColor = '', suppFont = '' } = {}) {
+  const paper = PAPER_STYLES[paperStyle] || PAPER_STYLES.white;
+  const stack = FONT_STACKS[font] || FONT_STACKS.system;
+  const suppStack = FONT_STACKS[suppFont] || stack;
+  const size = Number(fontSize) > 5 ? Number(fontSize) : 10.8;
+  const ink = textColor || paper.ink;
+  const lined = !!paper.rule;
+  const rh = ruleHeight(size);
+  return {
+    ruleH: rh,
+    css: `
+:root {
+  --ink:${ink}; --sub:${paper.sub}; --paper-bg:${paper.bg}; --rule:${paper.rule || 'transparent'}; --rule-h:${rh}px;
+  --doc-font:${stack}; --supp-font:${suppStack}; --doc-size:${size}pt;
+}
+html { background: var(--paper-bg); }
+body {
+  color: var(--ink); background: var(--paper-bg);
+  font-family: var(--doc-font); font-size: ${size}pt;
+  line-height: ${lined ? 'var(--rule-h)' : '1.72'};
+}
+${lined ? `/* 横线笔记本纸：格子高度 = 行高，所有纵向尺寸都取格子的整数倍，
+   于是每一行文字都正好落在一条横线上，横线也严格等间距 */
+.page {
+  background-image: repeating-linear-gradient(to bottom,
+    transparent 0, transparent calc(var(--rule-h) - 1px),
+    var(--rule) calc(var(--rule-h) - 1px), var(--rule) var(--rule-h));
+}
+h1,h2,h3,h4,h5,p,li,td,th,blockquote,figcaption,.toc li,.tl-item,.transcript div,
+.stat b,.stat span,.sec-time,.tl-body { line-height: var(--rule-h); }
+h1 { line-height: calc(var(--rule-h) * 2); }
+h2 { line-height: calc(var(--rule-h) * 1.5); }
+/* 装饰性边框会额外撑高、破坏格子，横线纸上用底色代替 */
+h2,h3 { border: none; padding-left: 0; padding-bottom: 0; }
+h3 { padding-left: 8pt; border-left: 3px solid var(--accent); }
+p,ul,ol,li,dl,dt,dd { margin-top: 0; margin-bottom: 0; }
+p,ul,ol { margin-bottom: var(--rule-h); }
+.callout,figure,table,pre,blockquote,.stat-row,.meta-table,.grid2,.toc,.formula-list { margin: var(--rule-h) 0; }
+/* 盒子内部不留竖直内边距，高度才正好是格子的整数倍 */
+.callout,blockquote,.stat { padding-top: 0; padding-bottom: 0; }
+th,td { padding-top: 0; padding-bottom: 0; }
+.section { margin-top: calc(var(--rule-h) * 2); }
+.section-head { margin-bottom: 0; }
+.cover { padding: calc(var(--rule-h) * 4) 0 calc(var(--rule-h) * 2); }
+.katex-display { margin: var(--rule-h) 0 !important; }
+/* 底纹半透明，让横线透过来（不然看起来像「横线缺了一块」） */
+.callout,.stat,figure,blockquote,th { background-color: color-mix(in srgb, var(--accent) 5%, transparent); }
+figure figcaption { background: color-mix(in srgb, var(--paper-bg) 88%, transparent); }
+` : ''}`,
+  };
+}
 
 const CSS = (opts = {}) => {
   const paper = PAPER_STYLES[opts.paperStyle] || PAPER_STYLES.white;
   const font = FONT_STACKS[opts.font] || FONT_STACKS.system;
-  const suppFont = FONT_STACKS[opts.suppFont] || font;
   const size = Number(opts.fontSize) > 5 ? Number(opts.fontSize) : 10.8;
-  const ink = opts.textColor || paper.ink;
-  const lined = !!paper.rule;
   const face = opts.fontFile
     ? `@font-face{font-family:"LXGW WenKai";src:url("fonts/${opts.fontFile}") format("truetype");font-display:swap;}`
     : '';
   return `
 ${face}
-:root {
-  --ink:${ink}; --sub:${paper.sub}; --line:#e2e6ec; --accent:#1f6feb; --accent2:#0b4ea2; --board:#f5f2e9;
-  --paper-bg:${paper.bg}; --rule:${paper.rule || 'transparent'}; --rule-h:${paper.ruleH || 0}px; --rule-offset:${paper.ruleOffset || 0}px;
-  --doc-font:${font}; --supp-font:${suppFont}; --doc-size:${size}pt;
-}
+:root { --line:#e2e6ec; --accent:#1f6feb; --accent2:#0b4ea2; --board:#f5f2e9; }
 * { box-sizing: border-box; }
-html { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: var(--paper-bg); }
-body {
-  margin:0; color:var(--ink); background: var(--paper-bg);
-  font-family: var(--doc-font);
-  font-size:${size}pt; line-height:${lined ? 'var(--rule-h)' : '1.72'}; letter-spacing:.01em;
-}
-${lined ? `/* 横线笔记本纸：行高 = 格子高度，横线落在每行文字下方；
-   段落/列表一律不额外留边距，否则纵向间距不是格子整数倍，文字就会压到线上 */
-.page {
-  background-image: repeating-linear-gradient(to bottom,
-    transparent 0, transparent calc(var(--rule-h) - 1px),
-    var(--rule) calc(var(--rule-h) - 1px), var(--rule) var(--rule-h));
-  background-position: 0 calc(var(--rule-offset) - var(--rule-h));
-}
-h1,h2,h3,h4 { line-height: var(--rule-h); }
-p, ul, ol, li, dl, dt, dd { margin-top: 0; margin-bottom: 0; }
-p, ul, ol { margin-bottom: var(--rule-h); }
-.callout, figure, table, pre, blockquote { margin: var(--rule-h) 0; }
-.section { margin-top: var(--rule-h); }
-.section-head { margin-bottom: 0; }
-.stat-row, .meta-table { margin-top: 0; }
-.cover { padding: calc(var(--rule-h) * 2) 0; }
-` : ''}
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .page { max-width: 190mm; margin: 0 auto; padding: 0 2mm; }
-h1,h2,h3,h4 { line-height:1.35; font-weight:700; color:#101418; }
+h1,h2,h3,h4 { line-height:${paper.rule ? 'var(--rule-h)' : '1.35'}; font-weight:700; color:#101418; }
 h1 { font-size:22pt; margin:0 0 6pt; }
 h2 { font-size:15pt; margin:20pt 0 8pt; padding-bottom:5pt; border-bottom:2px solid var(--accent); }
 h3 { font-size:12.4pt; margin:14pt 0 5pt; padding-left:7pt; border-left:3px solid var(--accent); }
@@ -233,6 +270,10 @@ figcaption { font-size:8.8pt; color:#46505f; padding:5pt 8pt; background:#fff; b
 .footer-note { margin-top:24pt; padding-top:8pt; border-top:1px solid var(--line); color:var(--sub); font-size:8.6pt; }
 @page { size:${opts.paper || 'A4'}; margin:16mm 14mm 15mm; }
 @media print { .page { max-width:none; padding:0; } h2 { page-break-after:avoid; } h3 { page-break-after:avoid; } }
+
+/* ── 外观层放最后：纸张底色、字体、字号、横线格子。
+      必须排在基础样式之后，否则会被上面的规则覆盖（例如 .callout 的不透明底色会盖住横线）。── */
+${lookCss(opts).css}
 `;
 };
 

@@ -15,6 +15,7 @@ import { generateSupplements, loadSupplements } from './supplement.mjs';
 import { asrAssets } from './asr.mjs';
 import { isUrl } from './ingest.mjs';
 import { mdToHtml } from './render.mjs';
+import { lookCss } from './render.mjs';
 import { repairLatex } from './latex.mjs';
 import fsx from 'node:fs';
 
@@ -239,6 +240,20 @@ export function startServer({ port = 7788, host = '127.0.0.1', open = true, auto
         }
         const r = searchExact(q);
         return send(res, 200, { ...r, mode });
+      }
+      if (p === '/api/look.css') {
+        // 界面里改外观时用它即时覆盖预览，和生成 PDF 用的是同一份 CSS
+        const cfg = loadConfig();
+        const q = url.searchParams;
+        const css = lookCss({
+          paperStyle: q.get('paperStyle') || cfg.output.paperStyle,
+          font: q.get('font') || cfg.output.font,
+          fontSize: Number(q.get('fontSize')) || cfg.output.fontSize,
+          textColor: q.has('textColor') ? q.get('textColor') : cfg.output.textColor,
+          suppFont: q.get('suppFont') || cfg.output.suppFont,
+        }).css;
+        res.writeHead(200, { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'no-store' });
+        return res.end(css);
       }
       if (p === '/api/status') return send(res, 200, environmentStatus());
       // 诊断用：自动退出计时状态

@@ -23,6 +23,10 @@ const checks = [
   ['全屏呈现成 A4 纸', js.includes('applyFsChrome') && js.includes('210mm')],
   ['外观设置同时注入预览与全屏', js.includes("['#previewFrame', '#fsFrame']")],
   ['全屏 iframe 载入后补画外观与批注', js.includes("applyLookToDoc($('#fsFrame').contentDocument)")],
+  ['已移除「打开 PDF」按钮', !html.includes('id="btnPdf"')],
+  ['外观改动自动存为默认', js.includes('scheduleLookSave')],
+  ['外观 CSS 由服务端统一提供', js.includes('/api/look.css')],
+  ['预览与 PDF 共用同一份外观 CSS', js.includes('fetchLookCss')],
 ];
 
 let bad = 0;

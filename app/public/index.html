@@ -155,8 +155,7 @@
             <button class="btn" id="btnCancel">取消</button>
             <button class="btn" id="btnReThink" title="保留已有的板书识别结果，只重新整理笔记">重写笔记</button>
             <button class="btn" id="btnReCapture" title="用当前的抓拍策略重新扫描画面、重新识别板书（会重新调用视觉模型）">重抓板书</button>
-            <button class="btn" id="btnReRender" title="不调用模型，只按当前版式与公式规范重新生成 PDF（修公式渲染用这个）">重新排版</button>
-            <a class="btn success hidden" id="btnPdf" target="_blank">打开 PDF</a>
+            <button class="btn" id="btnReRender" title="不调用模型，只按当前外观与版式重新生成成稿（改完字体/纸张用这个）">重新排版</button>
             <button class="btn ghost danger" id="btnDelete">删除</button>
           </div>
         </div>
@@ -198,7 +197,6 @@
               <span id="previewHint">成稿生成后可在此预览。</span>
               <span class="spacer"></span>
               <button class="btn small primary" id="btnExportPdf">📄 导出 PDF</button>
-              <a class="btn small hidden" id="btnPdf" target="_blank">打开 PDF</a>
               <a class="btn small hidden" id="linkHtml" target="_blank">在新窗口打开</a>
               <a class="btn small hidden" id="linkMd">下载 Markdown</a>
             </div>

@@ -117,28 +117,41 @@ function fsZoomFit() {
   applyFsChrome();
 }
 
+const lookCssCache = new Map(); // 同一套外观设置只取一次
+
+/** 取外观 CSS（和生成 PDF 用的是同一份，保证预览与成稿完全一致）。 */
+async function fetchLookCss(l) {
+  const key = [l.paperStyle, l.font, l.fontSize, l.textColor || '', l.suppFont].join('|');
+  if (lookCssCache.has(key)) return lookCssCache.get(key);
+  const qs = new URLSearchParams({
+    paperStyle: l.paperStyle,
+    font: l.font,
+    fontSize: String(l.fontSize),
+    textColor: l.textColor || '',
+    suppFont: l.suppFont,
+  });
+  const r = await fetch(`/api/look.css?${qs}`);
+  const css = await r.text();
+  lookCssCache.set(key, css);
+  return css;
+}
+
 /** 把外观覆盖样式注入到某个成稿文档里（预览 iframe / 全屏 iframe 通用）。 */
-function applyLookToDoc(doc) {
+async function applyLookToDoc(doc) {
   if (!doc || !doc.head || !lookState) return;
-  const l = lookState;
-  const body = DOC_FONTS[l.font] || DOC_FONTS.system;
+  let css;
+  try {
+    css = await fetchLookCss(lookState);
+  } catch {
+    return;
+  }
   let st = doc.getElementById('lookOverride');
   if (!st) {
     st = doc.createElement('style');
     st.id = 'lookOverride';
     doc.head.appendChild(st);
   }
-  st.textContent = `
-    :root { --doc-font:${body}; --supp-font:${DOC_FONTS[l.suppFont] || body}; --paper-bg:${PAPER_BG[l.paperStyle] || '#fff'}; }
-    html, body { background: ${PAPER_BG[l.paperStyle] || '#fff'} !important; font-family: ${body} !important; }
-    body { font-size: ${l.fontSize}pt !important; }
-    ${lookState.paperStyle === 'lined' ? `.page {
-      background-image: repeating-linear-gradient(to bottom,
-        transparent 0, transparent 33px, #e6dcc4 33px, #e6dcc4 34px) !important;
-      background-position: 0 -8px !important;
-    }` : `.page { background-image: none !important; }`}
-    ${l.textColor ? `body, p, li, td, th { color: ${l.textColor} !important; }` : ''}
-  `;
+  st.textContent = css;
 }
 
 /** 把当前外观设置应用出去：界面、两处成稿预览。 */
@@ -160,11 +173,37 @@ function applyLook(look, { live = true } = {}) {
   if (!live) return;
   for (const id of ['#previewFrame', '#fsFrame']) {
     try {
-      applyLookToDoc($(id)?.contentDocument);
+      applyLookToDoc($(id)?.contentDocument).then(() => {
+        if (id === '#fsFrame') applyFsChrome();
+      });
     } catch {}
   }
   applyFsChrome();
   drawMarginNotes();
+}
+
+/** 外观改动自动存为默认：这样之后点任何「重新排版」都用当前这套外观。 */
+let lookSaveTimer = null;
+function scheduleLookSave(look) {
+  clearTimeout(lookSaveTimer);
+  lookSaveTimer = setTimeout(async () => {
+    try {
+      await api.post('/api/config', {
+        output: {
+          paperStyle: look.paperStyle,
+          font: look.font,
+          fontSize: look.fontSize,
+          textColor: look.textColor,
+          suppFont: look.suppFont,
+          suppSize: look.suppSize,
+          suppColor: look.suppColor,
+        },
+      });
+      $('#lookMsg').textContent = '✓ 已存为默认（之后「重新排版」都用这套；随时还能再调）';
+    } catch (e) {
+      $('#lookMsg').textContent = '保存失败：' + e.message;
+    }
+  }, 500);
 }
 
 /** 从配置里取出外观设置 */
@@ -1353,10 +1392,6 @@ function updatePreviewLinks() {
     loadSupplements();
   }
   $('#aiSupp').classList.toggle('hidden', !done);
-  const pdf = p.output?.pdf;
-  const btn = $('#btnPdf');
-  btn.classList.toggle('hidden', !pdf);
-  if (pdf) btn.href = `/api/projects/${p.id}/file/${encodeURIComponent(String(pdf).split(/[\\/]/).pop())}`;
 }
 
 /* ─────────────── 日志 ─────────────── */
@@ -1692,8 +1727,9 @@ function bind() {
       const l = readLookTab();
       $('#lookFontSizeV').textContent = l.fontSize + ' pt';
       $('#lookSuppSizeV').textContent = l.suppSize + ' px';
-      $('#lookMsg').textContent = '预览已更新（还没写进 PDF）';
+      $('#lookMsg').textContent = '正在应用…';
       applyLook(l);
+      scheduleLookSave(l); // 自动存为默认，之后点「重新排版」就用这一套
     });
   });
   $('#lookTextColorAuto').onclick = () => {
@@ -1701,18 +1737,23 @@ function bind() {
     b.dataset.auto = b.dataset.auto === '1' ? '0' : '1';
     b.classList.toggle('primary', b.dataset.auto === '1');
     b.textContent = b.dataset.auto === '1' ? '跟随纸张 ✓' : '跟随纸张';
-    applyLook(readLookTab());
+    const l = readLookTab();
+    applyLook(l);
+    scheduleLookSave(l);
   };
   $('#btnLookReset').onclick = () => {
     $('#lookPaper').value = 'white';
     $('#lookFont').value = 'wenkai';
     $('#lookFontSize').value = 10.8;
     $('#lookTextColorAuto').dataset.auto = '1';
+    $('#lookTextColorAuto').textContent = '跟随纸张 ✓';
     $('#lookSuppFont').value = 'wenkai';
     $('#lookSuppSize').value = 14.5;
     $('#lookSuppColor').value = '#b45309';
-    applyLook(readLookTab());
-    $('#lookMsg').textContent = '已恢复默认（还没写进 PDF）';
+    const l = readLookTab();
+    applyLook(l);
+    scheduleLookSave(l);
+    $('#lookMsg').textContent = '已恢复默认并保存';
   };
   $('#btnLookApply').onclick = async () => {
     const btn = $('#btnLookApply');
@@ -1720,6 +1761,7 @@ function bind() {
     btn.textContent = '正在重新排版…';
     try {
       const l = readLookTab();
+      clearTimeout(lookSaveTimer);
       const cfg = await api.get('/api/config');
       cfg.output = { ...cfg.output, ...l };
       delete cfg.llm;
@@ -1727,11 +1769,11 @@ function bind() {
       await api.post('/api/config', { output: cfg.output });
       if (state.current) {
         await api.post(`/api/projects/${state.current.id}/rerender`, {});
-        toast('已应用到成稿与 PDF', 'ok');
+        toast('已应用到成稿（PDF 需要时点「导出 PDF」）', 'ok');
       } else {
-        toast('设置已保存；打开任务后点一次「重新排版」即可应用', 'ok');
+        toast('设置已存为默认；打开任务后点一次「重新排版」即可应用', 'ok');
       }
-      $('#lookMsg').textContent = '已写进成稿与 PDF ✓';
+      $('#lookMsg').textContent = '✓ 已写进成稿；需要 PDF 时到「成稿预览」点「导出 PDF」';
       await openProject(state.current?.id, { setHash: false });
     } catch (e) {
       $('#lookMsg').textContent = '失败：' + e.message;
