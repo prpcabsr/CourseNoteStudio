@@ -83,23 +83,15 @@ function applyFsChrome() {
     st.id = 'fsChrome';
     doc.head.appendChild(st);
   }
+  // 全屏：不留白边，整屏都是同一张底纸；纸面留出正常页边距，横线铺满整幅
   st.textContent = `
-    html { background:#e9edf3 !important; zoom:${zoom.toFixed(4)}; }
-    body { background:transparent !important; margin:0 !important; padding:0 !important; }
+    html, body { background: ${paperBg} !important; zoom:${zoom.toFixed(4)}; }
+    body { margin:0 !important; padding:0 !important; }
     .page {
-      width:210mm; max-width:none; margin:22px auto !important; min-height:297mm;
-      padding:16mm 14mm !important; box-sizing:border-box;
-      background-color:${paperBg} !important;
-      box-shadow:0 10px 34px -14px rgba(18,28,48,.45);
+      width:auto !important; max-width:none !important; margin:0 !important;
+      min-height:100vh; padding:16mm 18mm !important; box-sizing:border-box;
+      background-color:${paperBg} !important; box-shadow:none !important;
     }
-    ${l.paperStyle === 'lined'
-      ? `.page {
-          background-image: repeating-linear-gradient(to bottom,
-            transparent 0, transparent 33px, #e6dcc4 33px, #e6dcc4 34px) !important;
-          background-origin: content-box !important;
-          background-position: 0 -8px !important;
-        }`
-      : `.page { background-image:none !important; }`}
   `;
   const tag = $('#fsZoomV');
   if (tag) tag.textContent = Math.round(zoom * 100) + '%';
@@ -868,21 +860,26 @@ function drawMarginNotesInner() {
     <style>
       #aiSuppLayer { position: absolute; top: 0; left: 0; width: 0; height: 0; z-index: 60; }
       #aiSuppLayer .note {
-        position: absolute; width: 238px; padding: 6px 10px 8px 12px; box-sizing: border-box;
+        position: absolute; width: 238px; padding: 0 10px 0 12px; box-sizing: border-box;
         /* 和正文同一张纸：只加一点点底色和一个显眼的色条，不铺成独立便签 */
         background: color-mix(in srgb, var(--supp-color, #b45309) 7%, transparent);
         border: none; border-left: 3px solid var(--supp-color, #b45309); border-radius: 4px;
-        font-size: 12.5px; line-height: 1.8;
         transform: none; pointer-events: auto;
+        /* 行高跟着正文的格子走，批注文字同样落在横线上 */
+        line-height: var(--rule-h, 24px);
+        font-size: var(--supp-size, 14.5px);
       }
       #aiSuppLayer .note.dark { background: color-mix(in srgb, var(--supp-color, #b45309) 18%, transparent); }
       #aiSuppLayer .note h5 {
-        font-family: var(--supp-font, var(--doc-font, cursive)); font-size: calc(var(--supp-size, 14.5px) * 0.95);
-        font-weight: 400; margin-bottom: 2px; color: var(--supp-color, #b45309); letter-spacing: .4px;
+        font-family: var(--supp-font, var(--doc-font, cursive));
+        font-size: calc(var(--supp-size, 14.5px) * 0.95);
+        font-weight: 400; margin: 0; color: var(--supp-color, #b45309); letter-spacing: .4px;
+        line-height: var(--rule-h, 24px);
       }
       #aiSuppLayer .note .t {
-        font-family: var(--supp-font, var(--doc-font, cursive)); font-size: var(--supp-size, 14.5px);
-        line-height: 1.75; color: var(--supp-color, #b45309);
+        font-family: var(--supp-font, var(--doc-font, cursive));
+        font-size: var(--supp-size, 14.5px);
+        line-height: var(--rule-h, 24px); color: var(--supp-color, #b45309);
       }
       #aiSuppLayer .note .t .katex { font-size: 1.05em; color: inherit; }
       #aiSuppLayer .note a {
@@ -907,13 +904,16 @@ function drawMarginNotesInner() {
   layer.appendChild(svg);
 
   const isDark = document.documentElement.dataset.theme === 'dark';
+  // 正文的格子高度：批注的落点也对齐到格子，看起来就像写在同一条横线上
+  const ruleH = parseFloat(getComputedStyle(doc.documentElement).getPropertyValue('--rule-h')) || 0;
+  const snapTop = (y) => (ruleH > 4 ? Math.max(0, Math.floor(y / ruleH) * ruleH + 2) : y);
   let made = 0;
   const placed = []; // 已经放下的批注，用来避免互相压住
   for (const it of supp.items) {
     const target = findAnchorElement(doc, it);
     if (!target) continue;
     const r = target.getBoundingClientRect();
-    let top = r.top + win.scrollY + Math.min(18, Math.max(0, r.height / 2 - 10));
+    let top = snapTop(r.top + win.scrollY + Math.min(18, Math.max(0, r.height / 2 - 10)));
     const left = r.right + win.scrollX + 34;
 
     const note = doc.createElement('div');
@@ -943,7 +943,7 @@ function drawMarginNotesInner() {
     for (let guard = 0; guard < 30; guard++) {
       const clash = placed.find((p) => Math.abs(p.left - left) < 260 && top < p.top + p.h + 8 && top + h > p.top);
       if (!clash) break;
-      top = clash.top + clash.h + 12;
+      top = snapTop(clash.top + clash.h + 8);
       note.style.top = top + 'px';
       h = note.offsetHeight || h;
     }

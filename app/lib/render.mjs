@@ -165,7 +165,9 @@ ${lined ? `/* 横线笔记本纸：格子高度 = 行高，所有纵向尺寸都
 h1,h2,h3,h4,h5,p,li,td,th,blockquote,figcaption,.toc li,.tl-item,.transcript div,
 .stat b,.stat span,.sec-time,.tl-body { line-height: var(--rule-h); }
 h1 { line-height: calc(var(--rule-h) * 2); }
-h2 { line-height: calc(var(--rule-h) * 1.5); }
+/* 标题的行高与外边距都必须取格子整数倍，否则每过一个标题，后面所有文字就错开半格 */
+h1,h2,h3,h4,h5 { margin-top: 0; margin-bottom: var(--rule-h); }
+.section-head { margin: 0; }
 /* 装饰性边框会额外撑高、破坏格子，横线纸上用底色代替 */
 h2,h3 { border: none; padding-left: 0; padding-bottom: 0; }
 h3 { padding-left: 8pt; border-left: 3px solid var(--accent); }
@@ -176,7 +178,6 @@ p,ul,ol { margin-bottom: var(--rule-h); }
 .callout,blockquote,.stat { padding-top: 0; padding-bottom: 0; }
 th,td { padding-top: 0; padding-bottom: 0; }
 .section { margin-top: calc(var(--rule-h) * 2); }
-.section-head { margin-bottom: 0; }
 .cover { padding: calc(var(--rule-h) * 4) 0 calc(var(--rule-h) * 2); }
 .katex-display { margin: var(--rule-h) 0 !important; }
 /* 底纹半透明，让横线透过来（不然看起来像「横线缺了一块」） */
