@@ -505,6 +505,8 @@ a { color: var(--accent); text-decoration: none; }
   background: var(--panel); flex: 0 0 auto;
 }
 .fs-head b { font-size: 14px; }
+.fs-zoom { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 1px; }
+.fs-zoom .btn { border: none; }
 .fs-body { flex: 1; min-height: 0; display: flex; position: relative; }
 .fs-frame { flex: 1; min-width: 0; border: none; background: var(--panel); }
 .fs-ai {

@@ -56,8 +56,94 @@ const DOC_FONTS = {
 const PAPER_BG = { white: '#ffffff', cream: '#fbf5e6', lined: '#fdf9ee' };
 const PAPER_RULE = { white: '', cream: '', lined: '#e6dcc4' };
 
-/** 把当前外观设置应用出去：界面、成稿预览（iframe）、以及留给 PDF 的配置。 */
+let lookState = null; // 当前外观设置，两个预览 iframe 都要用
+
+let fsZoom = 0; // 0 = 自动适宽
+
+/** 全屏下把成稿呈现成「桌上的一张 A4 纸」，并支持缩放。 */
+function applyFsChrome() {
+  let doc;
+  try {
+    doc = $('#fsFrame')?.contentDocument;
+  } catch {
+    return;
+  }
+  if (!doc || !doc.head) return;
+  const l = lookState || {};
+  const paperBg = PAPER_BG[l.paperStyle] || '#ffffff';
+  const frameW = $('#fsFrame').clientWidth || 1200;
+  const A4_W = 793.7; // 210mm @96dpi
+  // 默认按实际大小（100%）显示；点「适应宽度」才缩放，并且最多放到 200%
+  const fit = Math.max(0.35, Math.min(2, (frameW - 56) / A4_W));
+  const zoom = fsZoom > 0 ? fsZoom : 1;
+  void fit;
+  let st = doc.getElementById('fsChrome');
+  if (!st) {
+    st = doc.createElement('style');
+    st.id = 'fsChrome';
+    doc.head.appendChild(st);
+  }
+  st.textContent = `
+    html { background:#e9edf3 !important; zoom:${zoom.toFixed(4)}; }
+    body { background:transparent !important; margin:0 !important; padding:0 !important; }
+    .page {
+      width:210mm; max-width:none; margin:22px auto !important; min-height:297mm;
+      padding:16mm 14mm !important; box-sizing:border-box;
+      background-color:${paperBg} !important;
+      box-shadow:0 10px 34px -14px rgba(18,28,48,.45);
+    }
+    ${l.paperStyle === 'lined'
+      ? `.page {
+          background-image: repeating-linear-gradient(to bottom,
+            transparent 0, transparent 33px, #e6dcc4 33px, #e6dcc4 34px) !important;
+          background-origin: content-box !important;
+          background-position: 0 -8px !important;
+        }`
+      : `.page { background-image:none !important; }`}
+  `;
+  const tag = $('#fsZoomV');
+  if (tag) tag.textContent = Math.round(zoom * 100) + '%';
+}
+
+function setFsZoom(z) {
+  fsZoom = z;
+  applyFsChrome();
+}
+
+/** 适应宽度（最多 200%，避免在小窗口里被放得过大）。 */
+function fsZoomFit() {
+  const frameW = $('#fsFrame')?.clientWidth || 1200;
+  fsZoom = Math.max(0.35, Math.min(2, (frameW - 56) / 793.7));
+  applyFsChrome();
+}
+
+/** 把外观覆盖样式注入到某个成稿文档里（预览 iframe / 全屏 iframe 通用）。 */
+function applyLookToDoc(doc) {
+  if (!doc || !doc.head || !lookState) return;
+  const l = lookState;
+  const body = DOC_FONTS[l.font] || DOC_FONTS.system;
+  let st = doc.getElementById('lookOverride');
+  if (!st) {
+    st = doc.createElement('style');
+    st.id = 'lookOverride';
+    doc.head.appendChild(st);
+  }
+  st.textContent = `
+    :root { --doc-font:${body}; --supp-font:${DOC_FONTS[l.suppFont] || body}; --paper-bg:${PAPER_BG[l.paperStyle] || '#fff'}; }
+    html, body { background: ${PAPER_BG[l.paperStyle] || '#fff'} !important; font-family: ${body} !important; }
+    body { font-size: ${l.fontSize}pt !important; }
+    ${lookState.paperStyle === 'lined' ? `.page {
+      background-image: repeating-linear-gradient(to bottom,
+        transparent 0, transparent 33px, #e6dcc4 33px, #e6dcc4 34px) !important;
+      background-position: 0 -8px !important;
+    }` : `.page { background-image: none !important; }`}
+    ${l.textColor ? `body, p, li, td, th { color: ${l.textColor} !important; }` : ''}
+  `;
+}
+
+/** 把当前外观设置应用出去：界面、两处成稿预览。 */
 function applyLook(look, { live = true } = {}) {
+  lookState = look;
   const body = DOC_FONTS[look.font] || DOC_FONTS.system;
   const supp = DOC_FONTS[look.suppFont] || body;
   const root = document.documentElement;
@@ -72,26 +158,12 @@ function applyLook(look, { live = true } = {}) {
     document.head.appendChild(s);
   }
   if (!live) return;
-  // 成稿预览是 iframe，直接往里注入一份覆盖样式，改动立刻可见（不用重新排版）
-  let doc;
-  try {
-    doc = $('#previewFrame')?.contentDocument;
-  } catch {
-    return;
+  for (const id of ['#previewFrame', '#fsFrame']) {
+    try {
+      applyLookToDoc($(id)?.contentDocument);
+    } catch {}
   }
-  if (!doc || !doc.body) return;
-  let st = doc.getElementById('lookOverride');
-  if (!st) {
-    st = doc.createElement('style');
-    st.id = 'lookOverride';
-    doc.head.appendChild(st);
-  }
-  st.textContent = `
-    :root { --doc-font:${body}; --paper-bg:${PAPER_BG[look.paperStyle] || '#fff'}; }
-    html, body { background: ${PAPER_BG[look.paperStyle] || '#fff'} !important; font-family: ${body} !important; }
-    body { font-size: ${look.fontSize}pt !important; }
-    ${look.textColor ? `body, p, li, td, th { color: ${look.textColor} !important; }` : ''}
-  `;
+  applyFsChrome();
   drawMarginNotes();
 }
 
@@ -1223,14 +1295,19 @@ async function exportPdf() {
 function enterFullscreenPreview() {
   const url = $('#previewFrame')?.src;
   if (!url) return;
+  fsZoom = 1; // 进全屏先按实际大小显示，需要时点「适应宽度」
   $('#fsFrame').src = url;
   $('#fsOverlay').classList.remove('hidden');
   $('#fsTitle').textContent = state.current?.title || '成稿预览';
   document.body.style.overflow = 'hidden';
   // 全屏里默认收起 AI，留一条窄边
   fsAiShow(false);
-  $('#fsFrame').addEventListener('load', () => setTimeout(drawMarginNotes, 300), { once: true });
-  setTimeout(drawMarginNotes, 600);
+  $('#fsFrame').addEventListener(
+    'load',
+    () => setTimeout(() => { applyLookToDoc($('#fsFrame').contentDocument); applyFsChrome(); drawMarginNotes(); }, 250),
+    { once: true },
+  );
+  setTimeout(() => { applyFsChrome(); drawMarginNotes(); }, 700);
 }
 
 function exitFullscreenPreview() {
@@ -1682,6 +1759,9 @@ function bind() {
   $('#fsAiToggle').onclick = () => fsAiShow($('#fsAi').classList.contains('hidden'));
   $('#fsAiHide').onclick = () => fsAiShow(false);
   $('#fsRail').onclick = () => fsAiShow(true);
+  $('#fsZoomIn').onclick = () => setFsZoom(Math.min(2.5, (fsZoom || 1) + 0.1));
+  $('#fsZoomOut').onclick = () => setFsZoom(Math.max(0.4, (fsZoom || 1) - 0.1));
+  $('#fsZoomFit').onclick = () => fsZoomFit();
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('#fsOverlay').classList.contains('hidden')) exitFullscreenPreview();
   });

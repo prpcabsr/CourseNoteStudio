@@ -19,6 +19,10 @@ const checks = [
   ['批注跟随全屏 iframe', js.includes('activePreviewFrame')],
   ['导出走新接口', js.includes('/export-pdf')],
   ['未自动生成 PDF', !js.includes('自动生成 PDF')],
+  ['全屏缩放控件', html.includes('id="fsZoomIn"') && html.includes('id="fsZoomOut"') && html.includes('id="fsZoomFit"')],
+  ['全屏呈现成 A4 纸', js.includes('applyFsChrome') && js.includes('210mm')],
+  ['外观设置同时注入预览与全屏', js.includes("['#previewFrame', '#fsFrame']")],
+  ['全屏 iframe 载入后补画外观与批注', js.includes("applyLookToDoc($('#fsFrame').contentDocument)")],
 ];
 
 let bad = 0;
