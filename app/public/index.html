@@ -34,6 +34,15 @@
     <aside class="sidebar" id="sidebar">
       <button class="btn primary block" id="btnNew">＋ 新建笔记任务</button>
       <div class="side-hint" id="sideHint">输入视频链接，或把视频文件拖到右侧</div>
+
+      <div class="side-search">
+        <input class="input" id="searchInput" placeholder="搜索全部笔记…" autocomplete="off">
+        <div class="search-modes">
+          <button class="seg active" data-mode="exact" title="按字面查找：原话、术语、公式都能直接搜出来">原话</button>
+          <button class="seg" data-mode="ai" title="语义查找：不记得原话也能搜到，需要文本模型 Key">AI 模糊</button>
+        </div>
+      </div>
+
       <div class="proj-list" id="projList"></div>
       <div class="sidebar-foot">
         <div class="tiny">本地运行 · 视频不会上传</div>
@@ -43,6 +52,25 @@
 
     <!-- ─────────────── 主区域 ─────────────── -->
     <main class="main" id="main">
+
+      <!-- 搜索结果 -->
+      <section class="view hidden" id="viewSearch">
+        <div class="view-inner">
+          <div class="search-head">
+            <button class="btn ghost" id="btnSearchBack">← 返回</button>
+            <div class="search-title">
+              <b id="searchQuery"></b>
+              <span class="tiny" id="searchMeta"></span>
+            </div>
+            <div class="search-modes">
+              <button class="seg active" data-smode="exact">原话</button>
+              <button class="seg" data-smode="ai">AI 模糊</button>
+            </div>
+          </div>
+          <div id="searchAnswer" class="ai-answer hidden"></div>
+          <div id="searchResults" class="search-results"></div>
+        </div>
+      </section>
 
       <!-- 首页 -->
       <section class="view" id="viewHome">

@@ -40,6 +40,13 @@ const CASES = [
   ['α₁、α₂ 是两根', 'Unicode 下标希腊字母'],
 ];
 
+// 这些必须「原样不动」——之前 mergeAdjacentMath 写太猛，把行间公式 $$..$$ 也拆了
+const NOCHANGE = [
+  ['$$\\lim_{x \\to x_0} f(x) = f(x_0)$$ —— 函数 $f(x)$ 在 $x_0$ 处连续的定义，即极限值等于函数值。', '行间公式与行内公式混排'],
+  ['$$|x^2 - x_0^2| = |x - x_0|\\,|x + x_0|$$ —— 证明 $f(x)=x^2$ 在 $x_0$ 处连续时的因式分解。', '第二条公式汇总'],
+  ['$$\\sum_{k=1}^{n} a_k$$', '单纯的行间公式'],
+];
+
 let fail = 0;
 if (missing.length) fail++;
 for (const [src, name] of CASES) {
@@ -48,6 +55,18 @@ for (const [src, name] of CASES) {
   console.log(`\n【${name}】`);
   console.log('  原：' + src);
   console.log('  后：' + out + (changed ? '   ← 已修正' : '   （未改动）'));
+}
+
+console.log('\n──────── 必须原样不动的情况 ────────');
+for (const [src, name] of NOCHANGE) {
+  const out = repairLatex(src);
+  const ok = out === src;
+  if (!ok) fail++;
+  console.log(`${ok ? '✓' : '✗'} ${name}`);
+  if (!ok) {
+    console.log('   原：' + src);
+    console.log('   后：' + out);
+  }
 }
 
 // 渲染检查：确认修复后的公式能被 KaTeX 正常排版（不是当普通文字排）

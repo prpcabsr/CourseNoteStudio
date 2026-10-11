@@ -120,18 +120,37 @@ export function wrapBareLatex(line) {
 }
 
 /**
- * 把一行里被拆开的相邻公式合并回一条：
+ * 把一行里被拆开的相邻行内公式合并回一条：
  *   「$\lim d$$^{2}/dz^{2}$$(z e^z)$」→「$\lim d^{2}/dz^{2}(z e^z)$」
  * 这种 `$A$$B$` 会被 Markdown 当成行间公式的定界符，排出来就散了。
+ *
+ * 注意必须按「公式 — 文字 — 公式」分词后再合并：
+ * 直接写正则会误伤正常的 `$$...$$` 行间公式（那种不能合并）。
  */
 function mergeAdjacentMath(line) {
-  let prev;
-  let out = line;
-  do {
-    prev = out;
-    out = out.replace(/\$([^$\n]*)\$\$([^$\n]*)\$/g, (_, a, b) => '$' + a + b + '$');
-  } while (out !== prev);
-  return out;
+  const re = /\$\$[\s\S]*?\$\$|\$[^$\n]*\$/g;
+  const parts = [];
+  let last = 0;
+  let m;
+  while ((m = re.exec(line))) {
+    if (m.index > last) parts.push({ t: line.slice(last, m.index) });
+    parts.push({ m: m[0] });
+    last = m.index + m[0].length;
+  }
+  if (last < line.length) parts.push({ t: line.slice(last) });
+
+  const isInline = (s) => !!s && s.length > 2 && s.startsWith('$') && s.endsWith('$') && !s.startsWith('$$');
+  const out = [];
+  for (const p of parts) {
+    const prev = out[out.length - 1];
+    if (p.m && prev && prev.m && isInline(prev.m) && isInline(p.m)) {
+      // 中间没有文字 → 是同一段公式被 $ 切开了，拼回去
+      prev.m = '$' + prev.m.slice(1, -1) + p.m.slice(1, -1) + '$';
+    } else {
+      out.push({ ...p });
+    }
+  }
+  return out.map((p) => (p.m !== undefined ? p.m : p.t)).join('');
 }
 
 /** 对一段文本里的公式做规范化。 */

@@ -177,10 +177,11 @@ async function openProject(id, { setHash = true } = {}) {
   } else setBar(0, '等待开始');
 }
 
-/** 支持 #/p/<id> 形式的地址，刷新后仍停留在同一个任务上。 */
+/** 支持 #/p/<id> 与 #/search 形式的地址，刷新后仍停留在原处。 */
 function routeFromHash() {
   const m = location.hash.match(/^#\/p\/([A-Za-z0-9]+)/);
   if (m) openProject(m[1], { setHash: false }).catch(() => { switchView('home'); });
+  else if (location.hash === '#/search') { switchView('search'); if (search.q && !$('#searchResults').children.length) runSearch(search.q); }
   else if (location.hash === '#/settings') { openDrawer().catch(() => {}); }
   else { state.current = null; closeDrawer(); switchView('home'); refreshProjects(); }
 }
@@ -193,6 +194,7 @@ function goHome() {
 function switchView(v) {
   $('#viewHome').classList.toggle('hidden', v !== 'home');
   $('#viewProject').classList.toggle('hidden', v !== 'project');
+  $('#viewSearch').classList.toggle('hidden', v !== 'search');
 }
 
 /** 切换标签页（也支持用 ?tab=notes 之类的地址直接打开某一页） */
@@ -411,6 +413,148 @@ async function loadChatHistory() {
       aiPushMsg('bot', mdSafe(item.answer || ''), { who: item.engine || 'AI' });
     }
   } catch {}
+}
+
+/* ─────────────── 全局搜索 ─────────────── */
+const search = { q: '', mode: 'exact', busy: false };
+
+function searchSetMode(mode) {
+  search.mode = mode;
+  $$('.side-search .seg').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
+  $$('#viewSearch .seg').forEach((b) => b.classList.toggle('active', b.dataset.smode === mode));
+}
+
+async function runSearch(q, mode) {
+  q = (q ?? $('#searchInput').value).trim();
+  if (!q) return;
+  search.q = q;
+  searchSetMode(mode || search.mode);
+  location.hash = '#/search';
+  $('#searchQuery').textContent = q;
+  $('#searchMeta').textContent = search.mode === 'ai' ? 'AI 模糊搜索中…' : '查找中…';
+  $('#searchAnswer').classList.add('hidden');
+  $('#searchResults').innerHTML = '<div class="search-empty">正在搜索…</div>';
+  if (search.busy) return;
+  search.busy = true;
+  try {
+    const r = await api.get(`/api/search?mode=${search.mode}&q=${encodeURIComponent(q)}`);
+    renderSearchResults(r);
+  } catch (e) {
+    $('#searchMeta').textContent = '';
+    $('#searchResults').innerHTML = `<div class="search-empty">搜索失败：${esc(e.message)}</div>`;
+  } finally {
+    search.busy = false;
+  }
+}
+
+/**
+ * 搜索片段：先把 $...$ 公式挖出来保护住，只对普通文字做高亮，
+ * 再把公式原样放回去交给 KaTeX 排版（免得 <mark> 插进公式里把它弄坏）。
+ */
+function highlightSnippet(text, q) {
+  const store = [];
+  let masked = String(text).replace(/\$\$[\s\S]*?\$\$|\$[^$\n]*\$/g, (m) => {
+    store.push(m);
+    return `\u0000${store.length - 1}\u0000`;
+  });
+  // 截断可能把公式切断，剩下的孤立 $ 直接去掉更清爽
+  masked = masked.replace(/\$/g, '');
+  let html = esc(masked);
+  for (const t of q.split(/\s+/).filter(Boolean)) {
+    const re = new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+    html = html.replace(re, '<mark>$1</mark>');
+  }
+  return html.replace(/\u0000(\d+)\u0000/g, (_, i) => esc(store[Number(i)] ?? ''));
+}
+
+const KIND_LABEL = {
+  transcript: '讲稿原话',
+  board: '板书',
+  section: '笔记正文',
+  overview: '概览',
+  objective: '学习目标',
+  formulas: '公式',
+  glossary: '术语表',
+  quiz: '自测题',
+};
+
+function renderSearchResults(r) {
+  const hits = r.hits || [];
+  if (r.mode === 'ai') {
+    $('#searchMeta').textContent = hits.length
+      ? `AI 判断出 ${hits.length} 处相关（从 ${r.candidates} 个候选里挑出）`
+      : 'AI 没有找到相关内容';
+  } else {
+    $('#searchMeta').textContent = hits.length ? `找到 ${r.total} 处（显示前 ${hits.length} 处）` : '没有找到';
+  }
+  if (r.answer) {
+    const box = $('#searchAnswer');
+    box.classList.remove('hidden');
+    box.innerHTML = `<div class="who">🤖 AI 直接回答</div>${mdSafe(r.answer)}`;
+    renderMath(box);
+  } else {
+    $('#searchAnswer').classList.add('hidden');
+  }
+  if (!hits.length) {
+    $('#searchResults').innerHTML = `<div class="search-empty">
+      没有找到「${esc(search.q)}」<br>
+      ${search.mode === 'ai' ? '换个说法再试试，或者切回「原话」按字面找。' : '试试切到「AI 模糊」，用大概的意思来找。'}
+    </div>`;
+    return;
+  }
+  $('#searchResults').innerHTML = hits
+    .map((h, i) => {
+      const kind = KIND_LABEL[h.kind] || h.kind;
+      const label = h.label && h.label !== kind && !h.label.startsWith(kind) ? `<span class="tiny">${esc(h.label)}</span>` : '';
+      return `<div class="sr-card" data-i="${i}">
+        <div class="sr-head">
+          <span class="p">${esc(h.ptitle)}</span>
+          <span class="tag time">${esc(kind)}</span>
+          ${h.time ? `<span class="tag">${esc(h.time)}</span>` : ''}
+          ${label}
+        </div>
+        <div class="sr-body">${highlightSnippet(h.snippet, search.q)}</div>
+        ${h.why ? `<div class="sr-why">为什么相关：${esc(h.why)}</div>` : ''}
+      </div>`;
+    })
+    .join('');
+  renderMath($('#searchResults'));
+  $$('#searchResults .sr-card').forEach((card) => {
+    card.onclick = () => openSearchHit(hits[Number(card.dataset.i)]);
+  });
+}
+
+/** 点搜索结果 → 打开对应任务，并跳到对应的章节/板书 */
+async function openSearchHit(hit) {
+  await openProject(hit.pid);
+  if (hit.kind === 'section' && hit.t != null) {
+    const secs = state.sections || [];
+    let idx = -1;
+    for (let i = 0; i < secs.length; i++) if (secs[i].start <= hit.t + 1) idx = i;
+    if (idx >= 0) {
+      activateTab('notes');
+      const el = $$('#noteList .note-card')[idx + 1]; // 第 0 张是概览
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        el.classList.add('flash');
+        setTimeout(() => el.classList.remove('flash'), 2200);
+      }
+      return;
+    }
+  }
+  if (hit.kind === 'board') {
+    activateTab('board');
+    const cards = $$('#boardGrid .board-card');
+    const el = cards[Math.min(cards.length - 1, Math.max(0, cards.findIndex((c) => c.textContent.includes(hit.time))))];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('flash');
+      setTimeout(() => el.classList.remove('flash'), 2200);
+    }
+    return;
+  }
+  activateTab('notes');
+  $('#noteList')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function aiSend() {
@@ -1030,6 +1174,13 @@ function bind() {
   setupSelectionAsk();
   setupContextMenu();
   setupResizers();
+
+  // 全局搜索
+  $('#searchInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
+  $('#searchInput').addEventListener('input', (e) => { if (!e.target.value.trim()) { if (location.hash === '#/search') goHome(); } });
+  $$('.side-search .seg').forEach((b) => (b.onclick = () => { searchSetMode(b.dataset.mode); if ($('#searchInput').value.trim()) runSearch(); }));
+  $$('#viewSearch .seg').forEach((b) => (b.onclick = () => { searchSetMode(b.dataset.smode); runSearch(search.q); }));
+  $('#btnSearchBack').onclick = () => (state.current ? (location.hash = `#/p/${state.current.id}`) : goHome());
   // 面板默认常驻（除非用户上次主动收起）
   aiToggle(localStorage.getItem('cns-ai-open') !== '0');
   $$('#tabs .tab').forEach((t) => t.onclick = () => {
@@ -1096,6 +1247,13 @@ async function install(ids) {
   if (wantTab) activateTab(wantTab);
   if (params.get('ai') === '1') aiToggle(true);
   if (params.get('ctxdemo') === '1') setTimeout(() => window.__ctxDemo?.(), 1500);
+  // 支持 /?q=关键词&mode=ai 直接搜索（可用于收藏夹/深链）
+  const q0 = params.get('q');
+  if (q0) {
+    $('#searchInput').value = q0;
+    searchSetMode(params.get('mode') === 'ai' ? 'ai' : 'exact');
+    runSearch(q0);
+  }
   window.addEventListener('hashchange', routeFromHash);
   // 支持 ?nosse 用于静态截图/调试（避免长连接让无头浏览器一直处于加载状态）
   if (!location.search.includes('nosse')) connectSSE();

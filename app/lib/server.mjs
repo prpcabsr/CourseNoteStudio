@@ -10,6 +10,7 @@ import { createProject, listProjects, loadState, projectPaths, deleteProject, re
 import { runPipeline, cancelProject, isRunning, renderProject, STAGES } from './pipeline.mjs';
 import { vlmStatus, stopLocalServer, localServerInfo, askWithImages } from './vision.mjs';
 import { callLlm } from './fusion.mjs';
+import { searchExact, searchAi, invalidateSearchCache } from './search.mjs';
 import { asrAssets } from './asr.mjs';
 import { isUrl } from './ingest.mjs';
 import { mdToHtml } from './render.mjs';
@@ -218,6 +219,26 @@ export function startServer({ port = 7788, host = '127.0.0.1', open = true, auto
         return;
       }
 
+      if (p === '/api/search') {
+        const q = url.searchParams.get('q') || '';
+        const mode = url.searchParams.get('mode') || 'exact';
+        if (!q.trim()) return send(res, 200, { hits: [], total: 0, mode });
+        if (mode === 'ai') {
+          const cfg = loadConfig();
+          const { key } = resolveLlmKey(cfg);
+          if (!key) {
+            return send(res, 400, { error: 'AI 模糊搜索需要文本模型 Key，请在「环境与模型 → 文本模型」里配置；也可以先用「原话」精确搜索。' });
+          }
+          try {
+            const r = await searchAi({ query: q, cfg });
+            return send(res, 200, { ...r, total: r.hits.length, mode });
+          } catch (e) {
+            return send(res, 500, { error: 'AI 搜索失败：' + e.message });
+          }
+        }
+        const r = searchExact(q);
+        return send(res, 200, { ...r, mode });
+      }
       if (p === '/api/status') return send(res, 200, environmentStatus());
       // 诊断用：自动退出计时状态
       if (p === '/api/life') {
