@@ -166,13 +166,15 @@ a { color: var(--accent); text-decoration: none; }
 .supp-head b { font-size: 15px; }
 .supp-list { display: flex; flex-direction: column; gap: 14px; }
 .supp-item {
-  border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: var(--radius-sm);
+  border: 1px solid var(--line); border-left: 3px solid var(--supp-color, var(--warn)); border-radius: var(--radius-sm);
   background: var(--panel-2); padding: 13px 16px;
 }
 .supp-item h4 { font-size: 14px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .supp-item .where { font-size: 11.5px; color: var(--text-3); }
 .supp-item .short {
-  font-family: var(--doc-font, var(--hand)); font-size: 15.5px; line-height: 1.95; color: color-mix(in srgb, var(--warn) 65%, var(--text));
+  font-family: var(--supp-font, var(--doc-font, var(--hand)));
+  font-size: var(--supp-size, 15.5px); line-height: 1.95;
+  color: var(--supp-color, #b45309);
   margin: 6px 0 8px;
 }
 .supp-item .short .katex { font-size: 1.05em; }
@@ -472,6 +474,21 @@ a { color: var(--accent); text-decoration: none; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
 .form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-2); }
 .chk-line { flex-direction: row !important; align-items: center; gap: 7px !important; grid-column: span 1; }
+
+/* ── 外观设置标签页 ── */
+.tab-look { color: var(--accent); }
+.look-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.look-bar b { font-size: 15px; }
+.look-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.look-card { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-2); padding: 13px 15px; }
+.look-card h4 { font-size: 13.5px; margin-bottom: 10px; color: var(--accent-2); }
+.look-card label { display: block; font-size: 12.5px; color: var(--text-2); margin-bottom: 10px; }
+.look-card select, .look-card input[type="range"] { width: 100%; margin-top: 4px; }
+.look-card input[type="range"] { accent-color: var(--accent); }
+.look-card .row-inline { display: flex; align-items: center; gap: 8px; }
+.look-card input[type="color"] { width: 42px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; cursor: pointer; }
+.look-card output { font-size: 12px; color: var(--text-3); margin-left: 6px; }
+.look-card .tiny { margin-top: 6px; line-height: 1.6; }
 
 /* 程序已退出时的提示 */
 .server-down { position: fixed; inset: 0; z-index: 95; background: rgba(10, 16, 26, .55); backdrop-filter: blur(3px); display: grid; place-items: center; padding: 24px; }

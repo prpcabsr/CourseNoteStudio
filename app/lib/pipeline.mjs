@@ -388,7 +388,7 @@ export async function renderProject({ projectId, onEvent = () => {}, docIn, medi
   // 笔记字体（可选）：把字体文件放到 out/fonts/ 下，HTML 用相对路径引用，
   // 这样 iframe 预览和 Edge 打印（file://）都能加载到，不会踩跨域问题。
   let fontFile = '';
-  if (cfg.output.font === 'wenkai') {
+  if (cfg.output.font === 'wenkai' || cfg.output.suppFont === 'wenkai') {
     const src = path.join(FONTS_DIR, 'lxgw-wenkai-regular.ttf');
     if (fs.existsSync(src)) {
       const outFonts = path.join(P.out, 'fonts');
@@ -412,6 +412,9 @@ export async function renderProject({ projectId, onEvent = () => {}, docIn, medi
     paper: cfg.output.paper,
     paperStyle: cfg.output.paperStyle || 'white',
     font: cfg.output.font || 'system',
+    fontSize: cfg.output.fontSize || 10.8,
+    textColor: cfg.output.textColor || '',
+    suppFont: cfg.output.suppFont || cfg.output.font || 'system',
     fontFile,
     source: isUrl(state.input) ? state.input : '',
     durationText: fmtTime(media.duration || 0),

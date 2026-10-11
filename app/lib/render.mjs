@@ -123,6 +123,9 @@ export const PAPER_STYLES = {
 const CSS = (opts = {}) => {
   const paper = PAPER_STYLES[opts.paperStyle] || PAPER_STYLES.white;
   const font = FONT_STACKS[opts.font] || FONT_STACKS.system;
+  const suppFont = FONT_STACKS[opts.suppFont] || font;
+  const size = Number(opts.fontSize) > 5 ? Number(opts.fontSize) : 10.8;
+  const ink = opts.textColor || paper.ink;
   const lined = !!paper.rule;
   const face = opts.fontFile
     ? `@font-face{font-family:"LXGW WenKai";src:url("fonts/${opts.fontFile}") format("truetype");font-display:swap;}`
@@ -130,15 +133,16 @@ const CSS = (opts = {}) => {
   return `
 ${face}
 :root {
-  --ink:${paper.ink}; --sub:${paper.sub}; --line:#e2e6ec; --accent:#1f6feb; --accent2:#0b4ea2; --board:#f5f2e9;
-  --paper-bg:${paper.bg}; --rule:${paper.rule || 'transparent'}; --rule-h:${paper.ruleH || 0}px; --rule-offset:${paper.ruleOffset || 0}px; --doc-font:${font};
+  --ink:${ink}; --sub:${paper.sub}; --line:#e2e6ec; --accent:#1f6feb; --accent2:#0b4ea2; --board:#f5f2e9;
+  --paper-bg:${paper.bg}; --rule:${paper.rule || 'transparent'}; --rule-h:${paper.ruleH || 0}px; --rule-offset:${paper.ruleOffset || 0}px;
+  --doc-font:${font}; --supp-font:${suppFont}; --doc-size:${size}pt;
 }
 * { box-sizing: border-box; }
 html { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: var(--paper-bg); }
 body {
   margin:0; color:var(--ink); background: var(--paper-bg);
   font-family: var(--doc-font);
-  font-size:10.8pt; line-height:${lined ? 'var(--rule-h)' : '1.72'}; letter-spacing:.01em;
+  font-size:${size}pt; line-height:${lined ? 'var(--rule-h)' : '1.72'}; letter-spacing:.01em;
 }
 ${lined ? `/* 横线笔记本纸：行高 = 格子高度，横线落在每行文字下方；
    段落/列表一律不额外留边距，否则纵向间距不是格子整数倍，文字就会压到线上 */
@@ -277,7 +281,7 @@ export function buildHtml(
   parts.push(`<title>${escapeHtml(doc.title || '课程笔记')}</title>`);
   if (inlineAssets) parts.push(`<style>${inlineKatexCss()}</style>`);
   else parts.push(`<link rel="stylesheet" href="${relativeAssets}/katex.min.css">`);
-  parts.push(`<style>${CSS({ paper: meta.paper, paperStyle: meta.paperStyle, font: meta.font, fontFile: meta.fontFile })}</style>`);
+  parts.push(`<style>${CSS({ paper: meta.paper, paperStyle: meta.paperStyle, font: meta.font, fontFile: meta.fontFile, fontSize: meta.fontSize, textColor: meta.textColor, suppFont: meta.suppFont })}</style>`);
   parts.push('</head><body><div class="page">');
 
   // 封面

@@ -49,7 +49,14 @@ export const DEFAULTS = {
     includeTimestamp: true,
     paper: 'A4',
     paperStyle: 'white', // white | cream | lined（米黄横线笔记本纸）
+    // 正文外观
     font: 'wenkai', // system | wenkai | kaiti | songti
+    fontSize: 10.8, // pt
+    textColor: '', // 留空＝跟随纸张的墨色
+    // AI 补充（旁注）外观：与正文分开设置，写在同一张纸上
+    suppFont: 'wenkai',
+    suppSize: 14.5, // px
+    suppColor: '#b45309',
     theme: 'paper',
   },
   download: {

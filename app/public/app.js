@@ -53,18 +53,91 @@ const DOC_FONTS = {
   kaiti: '"KaiTi","楷体","STKaiti",serif',
   songti: '"SimSun","宋体","Songti SC",serif',
 };
-function applyDocFont(font) {
-  const stack = DOC_FONTS[font] || DOC_FONTS.system;
-  document.documentElement.style.setProperty('--doc-font', stack);
-  if (font === 'wenkai') {
-    // 让界面也能用上文楷：字体文件由 /api/assets/fonts/ 提供
-    if (!document.getElementById('docFontFace')) {
-      const s = document.createElement('style');
-      s.id = 'docFontFace';
-      s.textContent = `@font-face{font-family:"LXGW WenKai";src:url("/api/assets/fonts/lxgw-wenkai-regular.ttf") format("truetype");font-display:swap;}`;
-      document.head.appendChild(s);
-    }
+const PAPER_BG = { white: '#ffffff', cream: '#fbf5e6', lined: '#fdf9ee' };
+const PAPER_RULE = { white: '', cream: '', lined: '#e6dcc4' };
+
+/** 把当前外观设置应用出去：界面、成稿预览（iframe）、以及留给 PDF 的配置。 */
+function applyLook(look, { live = true } = {}) {
+  const body = DOC_FONTS[look.font] || DOC_FONTS.system;
+  const supp = DOC_FONTS[look.suppFont] || body;
+  const root = document.documentElement;
+  root.style.setProperty('--doc-font', body);
+  root.style.setProperty('--supp-font', supp);
+  root.style.setProperty('--supp-size', `${look.suppSize}px`);
+  root.style.setProperty('--supp-color', look.suppColor);
+  if ((look.font === 'wenkai' || look.suppFont === 'wenkai') && !document.getElementById('docFontFace')) {
+    const s = document.createElement('style');
+    s.id = 'docFontFace';
+    s.textContent = '@font-face{font-family:"LXGW WenKai";src:url("/api/assets/fonts/lxgw-wenkai-regular.ttf") format("truetype");font-display:swap;}';
+    document.head.appendChild(s);
   }
+  if (!live) return;
+  // 成稿预览是 iframe，直接往里注入一份覆盖样式，改动立刻可见（不用重新排版）
+  let doc;
+  try {
+    doc = $('#previewFrame')?.contentDocument;
+  } catch {
+    return;
+  }
+  if (!doc || !doc.body) return;
+  let st = doc.getElementById('lookOverride');
+  if (!st) {
+    st = doc.createElement('style');
+    st.id = 'lookOverride';
+    doc.head.appendChild(st);
+  }
+  st.textContent = `
+    :root { --doc-font:${body}; --paper-bg:${PAPER_BG[look.paperStyle] || '#fff'}; }
+    html, body { background: ${PAPER_BG[look.paperStyle] || '#fff'} !important; font-family: ${body} !important; }
+    body { font-size: ${look.fontSize}pt !important; }
+    ${look.textColor ? `body, p, li, td, th { color: ${look.textColor} !important; }` : ''}
+  `;
+  drawMarginNotes();
+}
+
+/** 从配置里取出外观设置 */
+function lookFromCfg(cfg) {
+  return {
+    paperStyle: cfg.output?.paperStyle || 'white',
+    font: cfg.output?.font || 'system',
+    fontSize: Number(cfg.output?.fontSize) || 10.8,
+    textColor: cfg.output?.textColor || '',
+    suppFont: cfg.output?.suppFont || cfg.output?.font || 'system',
+    suppSize: Number(cfg.output?.suppSize) || 14.5,
+    suppColor: cfg.output?.suppColor || '#b45309',
+  };
+}
+
+async function loadLookTab() {
+  let cfg;
+  try {
+    cfg = await api.get('/api/config');
+  } catch {
+    return;
+  }
+  const l = lookFromCfg(cfg);
+  $('#lookPaper').value = l.paperStyle;
+  $('#lookFont').value = l.font;
+  $('#lookFontSize').value = l.fontSize;
+  $('#lookFontSizeV').textContent = l.fontSize + ' pt';
+  $('#lookTextColor').value = l.textColor || '#1a1a1a';
+  $('#lookSuppFont').value = l.suppFont;
+  $('#lookSuppSize').value = l.suppSize;
+  $('#lookSuppSizeV').textContent = l.suppSize + ' px';
+  $('#lookSuppColor').value = l.suppColor;
+  applyLook(l);
+}
+
+function readLookTab() {
+  return {
+    paperStyle: $('#lookPaper').value,
+    font: $('#lookFont').value,
+    fontSize: Number($('#lookFontSize').value),
+    textColor: $('#lookTextColorAuto').dataset.auto === '1' ? '' : $('#lookTextColor').value,
+    suppFont: $('#lookSuppFont').value,
+    suppSize: Number($('#lookSuppSize').value),
+    suppColor: $('#lookSuppColor').value,
+  };
 }
 
 async function refreshEnv() {
@@ -73,7 +146,7 @@ async function refreshEnv() {
   } catch (e) { return; }
   try {
     const cfg = await api.get('/api/config');
-    applyDocFont(cfg.output?.font);
+    applyLook(lookFromCfg(cfg), { live: false });
   } catch {}
   const e = state.env;
   const pills = [
@@ -677,24 +750,28 @@ function drawMarginNotesInner() {
     <style>
       #aiSuppLayer { position: absolute; top: 0; left: 0; width: 0; height: 0; z-index: 60; }
       #aiSuppLayer .note {
-        position: absolute; width: 232px; padding: 9px 11px; box-sizing: border-box;
-        background: #fffdf5; border: 1px solid #e8d9a8; border-left: 3px solid #e0a800; border-radius: 8px;
-        box-shadow: 0 4px 14px -8px rgba(120,90,0,.55); font-size: 12.5px; line-height: 1.75;
-        transform: rotate(-.5deg); pointer-events: auto; color: #4a3a12;
+        position: absolute; width: 238px; padding: 6px 10px 8px 12px; box-sizing: border-box;
+        /* 和正文同一张纸：只加一点点底色和一个显眼的色条，不铺成独立便签 */
+        background: color-mix(in srgb, var(--supp-color, #b45309) 7%, transparent);
+        border: none; border-left: 3px solid var(--supp-color, #b45309); border-radius: 4px;
+        font-size: 12.5px; line-height: 1.8;
+        transform: none; pointer-events: auto;
       }
-      #aiSuppLayer .note.dark { background: #2a2415; border-color: #6b5a20; color: #f0e3bb; }
+      #aiSuppLayer .note.dark { background: color-mix(in srgb, var(--supp-color, #b45309) 18%, transparent); }
       #aiSuppLayer .note h5 {
-        font-family: var(--doc-font, var(--hand, cursive)); font-size: 15px; font-weight: 400; margin-bottom: 3px;
-        color: #a06a00; letter-spacing: .4px;
+        font-family: var(--supp-font, var(--doc-font, cursive)); font-size: calc(var(--supp-size, 14.5px) * 0.95);
+        font-weight: 400; margin-bottom: 2px; color: var(--supp-color, #b45309); letter-spacing: .4px;
       }
-      #aiSuppLayer .note.dark h5 { color: #ffd166; }
-      #aiSuppLayer .note .t { font-family: var(--doc-font, var(--hand, cursive)); font-size: 14.5px; line-height: 1.75; }
-      #aiSuppLayer .note .t .katex { font-size: 1.05em; }
+      #aiSuppLayer .note .t {
+        font-family: var(--supp-font, var(--doc-font, cursive)); font-size: var(--supp-size, 14.5px);
+        line-height: 1.75; color: var(--supp-color, #b45309);
+      }
+      #aiSuppLayer .note .t .katex { font-size: 1.05em; color: inherit; }
       #aiSuppLayer .note a {
-        display: inline-block; margin-top: 5px; font-size: 11.5px; color: #b45309; text-decoration: none;
-        border-bottom: 1px dashed currentColor; cursor: pointer;
+        display: inline-block; margin-top: 4px; font-size: 11.5px; color: var(--supp-color, #b45309);
+        text-decoration: none; border-bottom: 1px dashed currentColor; cursor: pointer; opacity: .85;
       }
-      #aiSuppLayer .note a:hover { color: #ea580c; }
+      #aiSuppLayer .note a:hover { opacity: 1; }
       #aiSuppLayer svg { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; }
       body.ai-supp-on { padding-right: 288px; }
     </style>`;
@@ -726,6 +803,9 @@ function drawMarginNotesInner() {
     note.style.left = left + 'px';
     note.style.top = top + 'px';
     note.style.setProperty('--hand', handStack);
+    note.style.setProperty('--supp-font', getComputedStyle(document.documentElement).getPropertyValue('--supp-font').trim());
+    note.style.setProperty('--supp-size', getComputedStyle(document.documentElement).getPropertyValue('--supp-size').trim());
+    note.style.setProperty('--supp-color', getComputedStyle(document.documentElement).getPropertyValue('--supp-color').trim());
     note.innerHTML = `<h5>${esc(it.title || '补充')}</h5><div class="t">${it.shortHtml || esc(it.short || '')}</div>
       <a data-supp="${made}">了解更多 →</a>`;
     note.querySelector('a').onclick = (ev) => {
@@ -760,7 +840,7 @@ function drawMarginNotesInner() {
     const p = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
     p.setAttribute('d', `M ${fromX} ${fromY} C ${midX} ${fromY}, ${midX} ${toY}, ${toX} ${toY}`);
     p.setAttribute('fill', 'none');
-    p.setAttribute('stroke', '#d97706');
+    p.setAttribute('stroke', getComputedStyle(document.documentElement).getPropertyValue('--supp-color').trim() || '#d97706');
     p.setAttribute('stroke-width', '1.5');
     p.setAttribute('stroke-dasharray', '5 3');
     p.setAttribute('marker-end', 'url(#aiArrowHead)');
@@ -1331,42 +1411,11 @@ async function openDrawer() {
   $('#cfgImgWidth').value = cfg.capture.imageWidth;
   $('#cfgCookies').value = cfg.download.cookiesFromBrowser || '';
   $('#cfgCourse').value = cfg.output.courseName || '';
-  $('#cfgFont').value = cfg.output.font || 'system';
-  $('#cfgPaperStyle').value = cfg.output.paperStyle || 'white';
-  updateFontHint(cfg);
   $('#cfgIncludeTranscript').checked = !!cfg.output.includeTranscript;
   $('#cfgIncludeBoardImages').checked = !!cfg.output.includeBoardImages;
   $('#cfgIncludeBoardTimeline').checked = !!cfg.output.includeBoardTimeline;
 }
 
-/** 文楷字体需要先下载，这里提示状态并提供一键安装。 */
-function updateFontHint(cfg) {
-  const el = $('#fontHint');
-  if (!el) return;
-  applyDocFont($('#cfgFont').value);
-  const has = (state.env?.resources || []).find((c) => c.id === 'font-wenkai');
-  const installed = has ? has.installed : false;
-  if ($('#cfgFont').value !== 'wenkai') {
-    el.innerHTML = '字体改动会在下次「重新排版」时生效。';
-    return;
-  }
-  el.innerHTML = installed
-    ? '✓ 霞鹜文楷已安装（开源字体，SIL 协议），排版时会自动嵌入。'
-    : '霞鹜文楷还没安装（约 19 MB，开源 SIL 协议），当前会退回到系统楷体。<button class="btn small" id="btnGetFont">立即安装字体</button>';
-  const b = $('#btnGetFont');
-  if (b) b.onclick = async () => {
-    b.disabled = true;
-    b.textContent = '正在下载…';
-    try {
-      await api.post('/api/install', { ids: ['font-wenkai'] });
-      toast('字体安装已开始，完成后会在环境面板显示', 'ok');
-    } catch (e) {
-      toast('安装失败：' + e.message, 'err');
-      b.disabled = false;
-      b.textContent = '立即安装字体';
-    }
-  };
-}
 function closeDrawer() { $('#drawer').classList.add('hidden'); $('#drawerMask').classList.add('hidden'); }
 
 async function saveCfg() {
@@ -1387,8 +1436,6 @@ async function saveCfg() {
     download: { cookiesFromBrowser: $('#cfgCookies').value },
     output: {
       courseName: $('#cfgCourse').value.trim(),
-      font: $('#cfgFont').value,
-      paperStyle: $('#cfgPaperStyle').value,
       includeTranscript: $('#cfgIncludeTranscript').checked,
       includeBoardImages: $('#cfgIncludeBoardImages').checked,
       includeBoardTimeline: $('#cfgIncludeBoardTimeline').checked,
@@ -1476,6 +1523,65 @@ function bind() {
     e.target.style.height = 'auto';
     e.target.style.height = Math.min(150, e.target.scrollHeight) + 'px';
   });
+  // 外观设置标签页
+  $('#previewFrame')?.addEventListener('load', () => {});
+  const lookInputs = ['#lookPaper', '#lookFont', '#lookFontSize', '#lookTextColor', '#lookSuppFont', '#lookSuppSize', '#lookSuppColor'];
+  lookInputs.forEach((sel) => {
+    const el = $(sel);
+    if (!el) return;
+    el.addEventListener('input', () => {
+      const l = readLookTab();
+      $('#lookFontSizeV').textContent = l.fontSize + ' pt';
+      $('#lookSuppSizeV').textContent = l.suppSize + ' px';
+      $('#lookMsg').textContent = '预览已更新（还没写进 PDF）';
+      applyLook(l);
+    });
+  });
+  $('#lookTextColorAuto').onclick = () => {
+    const b = $('#lookTextColorAuto');
+    b.dataset.auto = b.dataset.auto === '1' ? '0' : '1';
+    b.classList.toggle('primary', b.dataset.auto === '1');
+    b.textContent = b.dataset.auto === '1' ? '跟随纸张 ✓' : '跟随纸张';
+    applyLook(readLookTab());
+  };
+  $('#btnLookReset').onclick = () => {
+    $('#lookPaper').value = 'white';
+    $('#lookFont').value = 'wenkai';
+    $('#lookFontSize').value = 10.8;
+    $('#lookTextColorAuto').dataset.auto = '1';
+    $('#lookSuppFont').value = 'wenkai';
+    $('#lookSuppSize').value = 14.5;
+    $('#lookSuppColor').value = '#b45309';
+    applyLook(readLookTab());
+    $('#lookMsg').textContent = '已恢复默认（还没写进 PDF）';
+  };
+  $('#btnLookApply').onclick = async () => {
+    const btn = $('#btnLookApply');
+    btn.disabled = true;
+    btn.textContent = '正在重新排版…';
+    try {
+      const l = readLookTab();
+      const cfg = await api.get('/api/config');
+      cfg.output = { ...cfg.output, ...l };
+      delete cfg.llm;
+      delete cfg.vlm;
+      await api.post('/api/config', { output: cfg.output });
+      if (state.current) {
+        await api.post(`/api/projects/${state.current.id}/rerender`, {});
+        toast('已应用到成稿与 PDF', 'ok');
+      } else {
+        toast('设置已保存；打开任务后点一次「重新排版」即可应用', 'ok');
+      }
+      $('#lookMsg').textContent = '已写进成稿与 PDF ✓';
+      await openProject(state.current?.id, { setHash: false });
+    } catch (e) {
+      $('#lookMsg').textContent = '失败：' + e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '保存并重新排版';
+    }
+  };
+
   setupSelectionAsk();
   setupContextMenu();
   setupResizers();
@@ -1499,6 +1605,7 @@ function bind() {
     $$('#tabs .tab, #tabsSub .tab').forEach((x) => x.classList.toggle('active', x === t));
     $$('.pane').forEach((p) => p.classList.toggle('hidden', p.dataset.pane !== t.dataset.tab));
     if (t.dataset.tab === 'preview') setTimeout(drawMarginNotes, 350); // iframe 尺寸变了要重画
+    if (t.dataset.tab === 'look') loadLookTab();
   });
 
   // 拖拽视频文件

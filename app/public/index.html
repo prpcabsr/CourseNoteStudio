@@ -174,6 +174,7 @@
           <button class="tab" data-tab="notes">笔记章节<span class="badge" id="badgeNotes">0</span></button>
           <button class="tab" data-tab="preview">成稿预览</button>
           <button class="tab" data-tab="logs">运行日志</button>
+          <button class="tab tab-look" data-tab="look">🎨 外观设置</button>
         </div>
         <!-- 第二行标签：AI 补充（生成后才出现，像浏览器标签一样单独一行） -->
         <div class="tabs tabs-sub hidden" id="tabsSub">
@@ -220,6 +221,60 @@
             </div>
             <div class="supp-list" id="suppList"></div>
             <div class="empty" id="suppEmpty">还没有补充内容。到「成稿预览」里点一下「✨ AI 补充」。</div>
+          </div>
+
+          <div class="pane hidden" data-pane="look">
+            <div class="look-bar">
+              <b>外观设置</b>
+              <span class="tiny">改动会立刻反映到「成稿预览」里；点右边按钮才会写进 PDF。</span>
+              <span class="spacer"></span>
+              <button class="btn ghost small" id="btnLookReset">恢复默认</button>
+              <button class="btn primary small" id="btnLookApply">保存并重新排版</button>
+            </div>
+
+            <div class="look-grid">
+              <section class="look-card">
+                <h4>纸张</h4>
+                <label>纸张样式
+                  <select id="lookPaper">
+                    <option value="white">纯白 A4</option>
+                    <option value="cream">米黄色 A4（无横线）</option>
+                    <option value="lined">米黄色横线笔记本纸</option>
+                  </select>
+                </label>
+                <p class="tiny">正文和 AI 讲解写在同一张纸上，换纸张两边一起换。</p>
+              </section>
+
+              <section class="look-card">
+                <h4>正文文字</h4>
+                <label>字体
+                  <select id="lookFont">
+                    <option value="system">系统默认（黑体）</option>
+                    <option value="wenkai">霞鹜文楷 · 硬笔手写</option>
+                    <option value="kaiti">楷体</option>
+                    <option value="songti">宋体</option>
+                  </select>
+                </label>
+                <label>字号 <input type="range" id="lookFontSize" min="8.5" max="15" step="0.1"> <output id="lookFontSizeV"></output></label>
+                <label class="row-inline">颜色 <input type="color" id="lookTextColor"> <button class="btn ghost small" id="lookTextColorAuto">跟随纸张</button></label>
+              </section>
+
+              <section class="look-card">
+                <h4>AI 讲解（旁注）</h4>
+                <label>字体
+                  <select id="lookSuppFont">
+                    <option value="system">系统默认（黑体）</option>
+                    <option value="wenkai">霞鹜文楷 · 硬笔手写</option>
+                    <option value="kaiti">楷体</option>
+                    <option value="songti">宋体</option>
+                  </select>
+                </label>
+                <label>字号 <input type="range" id="lookSuppSize" min="10" max="22" step="0.5"> <output id="lookSuppSizeV"></output></label>
+                <label class="row-inline">颜色 <input type="color" id="lookSuppColor"></label>
+                <p class="tiny">旁注直接写在纸张留白处（同一张纸），用颜色区分；箭头指向对应段落。</p>
+              </section>
+            </div>
+            <div class="tiny" id="lookMsg"></div>
           </div>
 
           <div class="pane hidden" data-pane="logs">
@@ -331,22 +386,6 @@
         </select>
       </label>
       <label>课程名称（写入 PDF 封面）<input class="input" id="cfgCourse"></label>
-      <label>笔记字体（正文与 AI 补充统一使用）
-        <select id="cfgFont">
-          <option value="system">系统默认（黑体）</option>
-          <option value="wenkai">霞鹜文楷 · 硬笔手写</option>
-          <option value="kaiti">楷体</option>
-          <option value="songti">宋体</option>
-        </select>
-      </label>
-      <div class="tiny" id="fontHint"></div>
-      <label>纸张样式（成稿预览与 PDF）
-        <select id="cfgPaperStyle">
-          <option value="white">纯白 A4</option>
-          <option value="cream">米黄色 A4（无横线）</option>
-          <option value="lined">米黄色横线笔记本纸</option>
-        </select>
-      </label>
       <label class="chk-line"><input type="checkbox" id="cfgIncludeTranscript"> PDF 里附完整讲稿</label>
       <label class="chk-line"><input type="checkbox" id="cfgIncludeBoardImages"> PDF 里插入板书配图</label>
       <label class="chk-line"><input type="checkbox" id="cfgIncludeBoardTimeline"> PDF 里附板书全时间线</label>
