@@ -6,7 +6,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import { installMany, CORE_IDS, catalogStatus } from './lib/download.mjs';
 import { humanSize } from './lib/paths.mjs';
 
@@ -55,19 +55,106 @@ function flag(name, def = null) {
   return def;
 }
 
+/** 这个端口上跑的是不是我们的服务（/api/status 一定带 node 字段）。 */
+async function probeOurs(port) {
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/api/status`, { signal: AbortSignal.timeout(1500) });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return j && j.node ? j : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 那边是不是还有任务正在跑（有的话就别杀它）。 */
+async function anyTaskRunning(port) {
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/api/projects`, { signal: AbortSignal.timeout(2500) });
+    const j = await r.json();
+    const list = Array.isArray(j) ? j : j.projects || [];
+    return list.some((p) => p.running);
+  } catch {
+    return false;
+  }
+}
+
+/** 找出监听该端口的进程号（Windows netstat）。 */
+function pidsOnPort(port) {
+  try {
+    const out = execSync('netstat -ano -p TCP', { encoding: 'utf8', windowsHide: true });
+    const pids = new Set();
+    for (const line of out.split('\n')) {
+      if (!/LISTENING/i.test(line)) continue;
+      if (!new RegExp(`[:.]${port}\\s`).test(line)) continue;
+      const cols = line.trim().split(/\s+/);
+      const pid = cols[cols.length - 1];
+      if (/^\d+$/.test(pid) && pid !== '0') pids.add(pid);
+    }
+    return [...pids];
+  } catch {
+    return [];
+  }
+}
+
+function openUrl(url) {
+  try {
+    spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  } catch {}
+}
+
 async function cmdServe() {
   const core = await loadCore();
-  const port = Number(flag('port', process.env.PORT || 7788));
+  let port = Number(flag('port', process.env.PORT || 7788));
   const host = String(flag('host', '127.0.0.1'));
   // 默认：所有页面关掉后自己退出（把黑窗口也一起关掉）。
   // 想让它一直挂着（比如给局域网里别人用），加 --keep-open。
   const autoClose = flag('keep-open', false) === true ? false : true;
-  const { url } = await core.startServer({
-    port,
-    host,
-    autoClose,
-    onShutdown: () => core.stopLocalServer?.(),
-  });
+  const wantedOpen = flag('open', true) !== false;
+
+  // 端口被占：是「自己人」就接管（保证跑的是最新代码），是别的程序就换端口
+  const existing = await probeOurs(port);
+  if (existing) {
+    if (await anyTaskRunning(port)) {
+      const url = `http://${host}:${port}`;
+      console.log(`\n  端口 ${port} 上已经有一个课程笔记工坊在运行，而且还有任务没跑完，就不打扰它了。`);
+      console.log(`  直接给你打开它：${url}\n`);
+      if (wantedOpen) openUrl(url);
+      process.exit(0);
+    }
+    console.log(`\n  端口 ${port} 上有一个之前留下的课程笔记工坊实例，正在替你换成新版本…`);
+    for (const pid of pidsOnPort(port)) {
+      try {
+        execSync(`taskkill /PID ${pid} /F`, { stdio: 'ignore', windowsHide: true });
+      } catch {}
+    }
+    await new Promise((r) => setTimeout(r, 1200));
+  }
+
+  // 逐个端口试，直到找到一个能用的（别的程序占了 7788 就自动用 7789…）
+  let url = '';
+  let lastErr = null;
+  for (let i = 0; i < 20; i++) {
+    try {
+      const r = await core.startServer({ port, host, autoClose, onShutdown: () => core.stopLocalServer?.() });
+      url = r.url;
+      break;
+    } catch (e) {
+      lastErr = e;
+      if (e && e.code === 'EADDRINUSE') {
+        if (i === 0) console.log(`\n  端口 ${port} 被其它程序占用了，自动往后找一个…`);
+        port += 1;
+        continue;
+      }
+      console.error(`\n  启动失败：${e.message}\n`);
+      process.exit(1);
+    }
+  }
+  if (!url) {
+    console.error(`\n  连续 20 个端口都被占用，启动失败。可以这样指定一个空闲端口：`);
+    console.error(`      node app\\main.mjs serve --port 8899\n`);
+    process.exit(1);
+  }
   const st = core.environmentStatus();
   console.log('');
   console.log('  ╭──────────────────────────────────────────────╮');
@@ -94,11 +181,7 @@ async function cmdServe() {
   console.log('  想让它一直开着（例如分享给局域网里的人），用：node app/main.mjs serve --keep-open');
   console.log('  也可以随时在本窗口按 Ctrl+C 手动退出。');
   console.log('');
-  if (flag('open', true) !== false) {
-    try {
-      spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
-    } catch {}
-  }
+  if (wantedOpen) openUrl(url);
 }
 
 async function cmdRun() {

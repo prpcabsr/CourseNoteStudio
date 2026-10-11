@@ -525,8 +525,12 @@ export function startServer({ port = 7788, host = '127.0.0.1', open = true, auto
     }
   });
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    // 端口被占用时把错误交给调用方（main.mjs 会自动换一个端口重试），
+    // 否则会变成未捕获的 'error' 事件，用户看到一屏堆栈。
+    server.once('error', reject);
     server.listen(port, host, () => {
+      server.removeListener('error', reject);
       if (autoClose) {
         // 没有任何页面连上来（比如打开了却没加载成功）→ 3 分钟后自动退出；
         // 曾经有页面连过、现在都关掉了 → 45 秒后自动退出（留点余量给刷新和网络抖动）。
