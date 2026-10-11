@@ -208,8 +208,10 @@
             <!-- AI 补充：针对成稿里没讲到但很关键的知识点，在旁边空白处加批注 -->
             <div class="ai-supp" id="aiSupp">
               <button class="btn primary" id="btnSupp">✨ AI 补充</button>
+              <button class="btn" id="btnAudit" title="让模型逐节复核公式与结论，发现根本错误就在右边标红惊叹号（红标会写进成稿，关掉批注也看得见）">🔍 AI 审校</button>
               <span class="tiny" id="suppHint">让 AI 找出课程里没讲到、但理解本节很关键的知识点，写在右侧空白处。</span>
               <span class="spacer"></span>
+              <span class="tiny hidden" id="auditBadge"></span>
               <label class="chk hidden" id="suppToggleWrap"><input type="checkbox" id="chkSuppOn" checked> 显示批注</label>
               <a class="btn small hidden" id="linkSupp">在一页里看全部 →</a>
             </div>

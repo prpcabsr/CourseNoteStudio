@@ -762,6 +762,9 @@ async function openSearchHit(hit) {
 
 /* ─────────────── AI 补充（成稿预览里的旁注 + 补充讲解页） ─────────────── */
 const supp = { items: [], on: true, busy: false };
+// AI 审校：只含「根本错误」。红色感叹号已经烧进成稿（关掉批注也看得见），
+// 这里的数据用来在开着批注时画出红色批注说明。
+const audit = { items: [] };
 
 async function loadSupplements() {
   if (!state.current) return;
@@ -772,7 +775,46 @@ async function loadSupplements() {
     supp.items = [];
   }
   renderSupplements();
-  if (supp.items.length) setTimeout(drawMarginNotes, 200); // iframe 可能已经加载完了
+  renderAuditBadge();
+  if (supp.items.length || audit.items.length) setTimeout(drawMarginNotes, 200); // iframe 可能已经加载完了
+}
+
+/** 右上角的审校状态：有根本错误就红字提醒。 */
+function renderAuditBadge() {
+  const el = $('#auditBadge');
+  if (!el) return;
+  const n = audit.items.length;
+  el.classList.toggle('hidden', !n);
+  el.classList.toggle('warn', n > 0);
+  el.textContent = n ? `AI 审校发现 ${n} 处实质性问题（正文有红标，见附录）` : '';
+}
+
+/** 手动跑一次 AI 审校（会重新排版，好把红标写进成稿）。 */
+async function runAudit() {
+  const p = state.current;
+  if (!p) return;
+  const btn = $('#btnAudit');
+  btn.disabled = true;
+  btn.textContent = '审校中…';
+  $('#suppHint').textContent = '正在逐节复核公式与结论，大约要一两分钟…';
+  try {
+    const r = await api.post(`/api/projects/${p.id}/audit`, {});
+    audit.items = r.items || [];
+    renderAuditBadge();
+    $('#suppHint').textContent = audit.items.length
+      ? `审校完成：发现 ${audit.items.length} 处实质性问题，已在正文用红色感叹号标出`
+      : '审校完成：没有发现实质性问题 ✓';
+    toast(audit.items.length ? `发现 ${audit.items.length} 处问题，已标红` : '没有发现实质性问题', audit.items.length ? 'err' : 'ok');
+    // 成稿被重新排版过，刷新预览与批注
+    $('#previewFrame').src = `/api/projects/${p.id}/html?t=${Date.now()}`;
+    setTimeout(drawMarginNotes, 900);
+  } catch (e) {
+    $('#suppHint').textContent = '审校失败：' + e.message;
+    toast('审校失败：' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔍 AI 审校';
+  }
 }
 
 function renderSupplements() {
@@ -884,6 +926,13 @@ function drawMarginNotesInner() {
         line-height: var(--rule-h, 24px); color: var(--supp-color, #b45309);
       }
       #aiSuppLayer .note .t .katex { font-size: 1.05em; color: inherit; }
+      /* AI 审校发现的根本错误：红色批注。红标本身烧在成稿 HTML 里，关掉批注也看得见 */
+      #aiSuppLayer .note.audit {
+        background: color-mix(in srgb, #d21f1f 10%, transparent);
+        border-left-color: #d21f1f;
+      }
+      #aiSuppLayer .note.audit h5 { color: #d21f1f; }
+      #aiSuppLayer .note.audit .t { color: #9c1616; }
       #aiSuppLayer .note a {
         display: inline-block; margin-top: 4px; font-size: 11.5px; color: var(--supp-color, #b45309);
         text-decoration: none; border-bottom: 1px dashed currentColor; cursor: pointer; opacity: .85;
@@ -918,42 +967,54 @@ function drawMarginNotesInner() {
   const noteLeft = contentRight + 26;
   const noteW = 240;
   let made = 0;
+  let madeAudit = 0;
   const placed = []; // 已经放下的批注，用来避免互相压住
-  for (const it of supp.items) {
-    const target = findAnchorElement(doc, it);
+  // 两种批注一起排：琥珀色是 AI 补充，红色是 AI 审校发现的根本错误
+  const queue = [
+    ...supp.items.map((it) => ({ kind: 'supp', it })),
+    ...(audit.items || []).map((it) => ({ kind: 'audit', it })),
+  ];
+  for (const { kind, it } of queue) {
+    const isAudit = kind === 'audit';
+    const target = isAudit ? findElementByText(doc, it.anchor) : findAnchorElement(doc, it);
     if (!target) continue;
     const key = suppKey(it.anchor);
     const hit = anchorRange(doc, target, key);
     const anchorRect = hit ? hit.rect : target.getBoundingClientRect();
     let top = snapTop(anchorRect.top + win.scrollY + Math.min(10, Math.max(0, anchorRect.height / 2 - 8)));
     const left = noteLeft + win.scrollX;
+    const color = isAudit ? '#d21f1f' : accent;
 
     const note = doc.createElement('div');
-    note.className = 'note' + (isDark ? ' dark' : '');
+    note.className = 'note' + (isDark ? ' dark' : '') + (isAudit ? ' audit' : '');
     note.style.left = left + 'px';
     note.style.top = top + 'px';
     note.style.width = noteW + 'px';
     note.style.setProperty('--hand', handStack);
     note.style.setProperty('--supp-font', getComputedStyle(document.documentElement).getPropertyValue('--supp-font').trim());
     note.style.setProperty('--supp-size', getComputedStyle(document.documentElement).getPropertyValue('--supp-size').trim());
-    note.style.setProperty('--supp-color', getComputedStyle(document.documentElement).getPropertyValue('--supp-color').trim());
-    note.innerHTML = `<h5>${esc(it.title || '补充')}</h5><div class="t">${it.shortHtml || esc(it.short || '')}</div>
+    note.style.setProperty('--supp-color', color);
+    if (isAudit) {
+      note.innerHTML = `<h5><span class="err-flag">!</span> ${esc(it.title || '可能有问题')}</h5><div class="t">${esc((it.detail || '').slice(0, 220))}</div>`;
+    } else {
+      note.innerHTML = `<h5>${esc(it.title || '补充')}</h5><div class="t">${it.shortHtml || esc(it.short || '')}</div>
       <a data-supp="${made}">了解更多 →</a>`;
-    note.querySelector('a').onclick = (ev) => {
-      ev.preventDefault();
-      // 全屏里就地弹讲解面板（切标签页会被全屏盖住，用户会以为「点了没反应」）
-      if (!$('#fsOverlay').classList.contains('hidden')) {
-        showFsDetail(it);
-        return;
-      }
-      activateTab('supp');
-      const card = $$('#suppList .supp-item')[supp.items.indexOf(it)];
-      if (card) {
-        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        card.classList.add('flash');
-        setTimeout(() => card.classList.remove('flash'), 2200);
-      }
-    };
+      note.querySelector('a').onclick = (ev) => {
+        ev.preventDefault();
+        // 全屏里就地弹讲解面板（切标签页会被全屏盖住，用户会以为「点了没反应」）
+        if (!$('#fsOverlay').classList.contains('hidden')) {
+          showFsDetail(it);
+          return;
+        }
+        activateTab('supp');
+        const card = $$('#suppList .supp-item')[supp.items.indexOf(it)];
+        if (card) {
+          card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          card.classList.add('flash');
+          setTimeout(() => card.classList.remove('flash'), 2200);
+        }
+      };
+    }
     layer.appendChild(note); // 先放进去才能量到真实高度
 
     // 用实际高度往下挪，直到不和已放置的批注重叠
@@ -976,7 +1037,7 @@ function drawMarginNotesInner() {
     const p = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
     p.setAttribute('d', curvePath(fromX, fromY, toX, toY));
     p.setAttribute('fill', 'none');
-    p.setAttribute('stroke', accent);
+    p.setAttribute('stroke', color);
     p.setAttribute('stroke-width', '1.4');
     p.setAttribute('stroke-dasharray', '6 4');
     p.setAttribute('stroke-linecap', 'round');
@@ -989,7 +1050,7 @@ function drawMarginNotesInner() {
       const line = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
       const y = mr.bottom + win.scrollY + 1.5;
       line.setAttribute('d', `M ${mr.left + win.scrollX} ${y} L ${mr.right + win.scrollX} ${y}`);
-      line.setAttribute('stroke', accent);
+      line.setAttribute('stroke', color);
       line.setAttribute('stroke-width', '1.5');
       line.setAttribute('stroke-dasharray', '4 2');
       line.setAttribute('opacity', '.75');
@@ -997,10 +1058,12 @@ function drawMarginNotesInner() {
       svg.appendChild(line);
     }
     made++;
+    if (isAudit) madeAudit++;
   }
   svg.setAttribute('height', Math.max(doc.body.scrollHeight, 100));
+  const auditMsg = madeAudit ? `；另有 ${madeAudit} 处红色❗是 AI 审校发现的根本错误` : '';
   $('#suppHint').textContent = made
-    ? `已在右侧空白处标出 ${made} 处补充（虚线箭头指向对应段落，想看详细解释点「在一页里看全部」）`
+    ? `已在右侧空白处标出 ${made} 处批注（虚线箭头指向对应句子，想看详细解释点「了解更多」）${auditMsg}`
     : `生成了 ${supp.items.length} 条补充，但没能在成稿里找到对应段落，请到「补充讲解」页查看`;
   return made;
 }
@@ -1014,6 +1077,16 @@ function curvePath(x0, y0, x1, y1) {
   const dx = Math.abs(x0 - x1);
   const k = Math.max(26, Math.min(130, dx * 0.5));
   return `M ${x0} ${y0} C ${x0 - k} ${y0}, ${x1 + k * 0.7} ${y1 - 6}, ${x1} ${y1}`;
+}
+
+/** 按「去公式后的纯文本」在成稿里找包含某段话的区块（AI 审校的红标用它定位）。 */
+function findElementByText(doc, text) {
+  const key = suppKey(text);
+  if (!key || key.length < 4) return null;
+  for (const el of $$('p, li, td, h3, h4, .callout, .tl-body, .kv-row', doc)) {
+    if (suppPlain(el).includes(key)) return el;
+  }
+  return null;
 }
 
 /**
@@ -1926,6 +1999,7 @@ function bind() {
 
   // 导出 PDF / 全屏预览 / 全屏里的 AI
   $('#btnExportPdf').onclick = exportPdf;
+  $('#btnAudit').onclick = runAudit;
   $('#btnPreviewFs').onclick = enterFullscreenPreview;
   $('#fsClose').onclick = exitFullscreenPreview;
   $('#fsAiToggle').onclick = () => fsAiShow($('#fsAi').classList.contains('hidden'));

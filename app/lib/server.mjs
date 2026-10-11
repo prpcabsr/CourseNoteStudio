@@ -12,10 +12,10 @@ import { vlmStatus, stopLocalServer, localServerInfo, askWithImages } from './vi
 import { callLlm } from './fusion.mjs';
 import { searchExact, searchAi, invalidateSearchCache } from './search.mjs';
 import { generateSupplements, loadSupplements } from './supplement.mjs';
+import { auditNotes, loadAudit } from './audit.mjs';
 import { asrAssets } from './asr.mjs';
 import { isUrl } from './ingest.mjs';
-import { mdToHtml } from './render.mjs';
-import { lookCss } from './render.mjs';
+import { mdToHtml, lookCss } from './render.mjs';
 import { repairLatex } from './latex.mjs';
 import fsx from 'node:fs';
 
@@ -388,7 +388,8 @@ export function startServer({ port = 7788, host = '127.0.0.1', open = true, auto
         }
         // ---- AI 补充（旁注）
         if (rest === '/supplements' && req.method === 'GET') {
-          return send(res, 200, loadSupplements(id));
+          // 顺带把 AI 审校结果一起给前端（红色批注要用），省一次请求
+          return send(res, 200, { ...loadSupplements(id), audit: loadAudit(id).items || [] });
         }
         if (rest === '/supplements' && req.method === 'POST') {
           const cfg = loadConfig();
@@ -440,6 +441,28 @@ export function startServer({ port = 7788, host = '127.0.0.1', open = true, auto
           return send(res, 200, { ok });
         }
         // 只重新排版（不调用模型，用于修正公式渲染/版式后快速出新 PDF）
+        if (rest === '/audit' && req.method === 'POST') {
+          if (isRunning(id)) return send(res, 409, { error: '这个任务正在运行' });
+          const cfg = loadConfig();
+          try {
+            const items = await auditNotes({
+              projectId: id,
+              cfg,
+              onEvent: (ev) => broadcast({ ...ev, projectId: id }),
+              concurrency: cfg.llm.concurrency,
+              bustCache: true,
+            });
+            // 审校结果要烧进成稿，顺手重新排版一次
+            const r = await renderProject({ projectId: id, onEvent: broadcast });
+            broadcast({ projectId: id, type: 'audit-done', count: items.length, html: r.htmlPath });
+            return send(res, 200, { ok: true, count: items.length, items });
+          } catch (e) {
+            return send(res, 500, { error: e.message });
+          }
+        }
+        if (rest === '/audit' && req.method === 'GET') {
+          return send(res, 200, loadAudit(id));
+        }
         if (rest === '/export-pdf' && req.method === 'POST') {
           try {
             const r = await exportPdf({

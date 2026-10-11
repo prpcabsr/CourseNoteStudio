@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveLlmKey } from './config.mjs';
+import { findCorrections, renderCorrections } from './corrections.mjs';
 import { repairLatex } from './latex.mjs';
 
 const WINDOW_MINUTES = 7;
@@ -82,10 +83,22 @@ const SYSTEM_WRITER = `你是一位顶尖的大学课程笔记整理专家。你
    - 概览、学习目标、术语表、自测题这些**叙述性段落里同样要包**，不要以为「正文公式才需要 $」；
    - 检查方法：写完后扫一遍自己的输出，凡是能看到下划线、脱字符、等号、斜杠而没有被 $ 包住的地方，都要补上。
 11. **用词统一**：同一个术语在一篇笔记里只能有一种写法（例如「洛朗级数」和「罗朗级数」不能混用，「柯西定理」和「科西定理」不能混用）。以教材常见译名为准，首次出现后可加英文原词。
-12. 输出简体中文。`;
+12. **以最终版本为准（老师更正过的地方）**：老师上课时常会过一会儿发现写错了，擦掉重写或口头更正。这种情况下：
+    - **只保留更正后的正确版本**，绝不把已经作废的错误写法当成结论写进笔记；
+    - 在更正处写一行引用块标注清楚，格式：\`> ⚠️ 此处老师曾更正：[原来错在哪] → [最终写法]\`；
+    - 材料里会给出「★老师在课堂上更正过的地方」清单，里面有时间点和原话，必须逐条落实；
+    - 板书抓拍是按时间排列的：如果后面的抓拍把前面某处擦掉重写了（标注「★这块板书之后被擦掉/改写」），说明老师改过它，**以最后一次写下的为准**；
+    - 如果材料不足以判断最终版本是什么，就写「（此处老师有更正，以板书最终版本为准）」并**保留最终那一版**，绝不允许把两个互相矛盾的版本并排列出而不加说明。
+13. 输出简体中文。`;
 
 /** 把时间轴切成若干时间窗。 */
-export function buildWindows({ transcript, snapshots, duration, windowMinutes = WINDOW_MINUTES }) {
+export function buildWindows({
+  transcript,
+  snapshots,
+  duration,
+  windowMinutes = WINDOW_MINUTES,
+  corrections = [],
+}) {
   const total = Math.max(duration || 0, snapshots.at(-1)?.t || 0, transcript?.segments?.at(-1)?.end || 0);
   const win = windowMinutes * 60;
   const n = Math.max(1, Math.ceil(total / win));
@@ -95,7 +108,12 @@ export function buildWindows({ transcript, snapshots, duration, windowMinutes = 
     const end = Math.min(total, (i + 1) * win);
     const segs = (transcript?.segments || []).filter((s) => s.start >= start - 2 && s.start < end + 2);
     const snaps = snapshots.filter((s) => s.t >= start - 3 && s.t < end + 3);
-    windows.push({ index: i, start, end, segments: segs, snapshots: snaps });
+    // 更正清单必须**下发到每一个窗口**：
+    //   · 更正可能发生在很后面（老师讲了 10 分钟才发现写错），
+    //     而写前面那一段时如果看不到更正，就会把作废的写法当成结论写死；
+    //   · 也可能发生在前面，此时本段不该再重复错误写法。
+    // 清单本身很短（每条几百字），全量下发代价可以接受。
+    windows.push({ index: i, start, end, segments: segs, snapshots: snaps, corrections });
   }
   return windows;
 }
@@ -113,7 +131,7 @@ function renderWindowMaterial(w) {
   if (boards.length) {
     lines.push('\n【板书识别结果（按时间顺序；同一块板书的后续抓拍包含前面内容）】');
     for (const b of boards) {
-      const tag = b.erased ? '★这块板书之后被擦掉了' : '';
+      const tag = b.erased ? '★这块板书之后被擦掉/改写了（若与前面某屏冲突，以最后写下的为准）' : '';
       lines.push(`--- 板书抓拍 @${fmtTime(b.t)}（第 ${b.generation + 1} 块板书）${tag}`);
       if (b.ocr.title) lines.push(`标题：${b.ocr.title}`);
       lines.push(repairLatex(b.ocr.text).trim());
@@ -121,6 +139,9 @@ function renderWindowMaterial(w) {
   } else {
     lines.push('\n【板书识别结果】本片段没有识别到板书内容。');
   }
+  // 这一段里老师更正过的地方：必须交给模型，否则错误写法会留在笔记里
+  const fixes = w.corrections || [];
+  if (fixes.length) lines.push(renderCorrections(fixes));
   return lines.join('\n');
 }
 
@@ -255,7 +276,17 @@ function pickImages(w, max = 4) {
 
 /** 主入口。 */
 export async function synthesize({ transcript, snapshots, duration, meta, cfg, cacheDir, onEvent = () => {}, signal, concurrency = 3, bustCache = false }) {
-  const windows = buildWindows({ transcript, snapshots, duration });
+  // 先找出老师更正过的地方：板书按住「一代一代」全部保留，
+  // 错误的那一版也在材料里，必须明确告诉模型以更正后的版本为准
+  const corrections = findCorrections(transcript?.segments || []);
+  if (corrections.length) {
+    onEvent({
+      type: 'log',
+      message: `检测到 ${corrections.length} 处老师更正（${corrections.map((c) => fmtTime(c.t)).join('、')}），已要求只保留最终版本`,
+      level: 'warn',
+    });
+  }
+  const windows = buildWindows({ transcript, snapshots, duration, corrections });
   onEvent({ type: 'log', message: `按时间轴切成 ${windows.length} 个片段，开始逐段整理…` });
   const sections = new Array(windows.length);
   let done = 0;
@@ -321,6 +352,8 @@ export async function synthesize({ transcript, snapshots, duration, meta, cfg, c
     quiz: merged.quiz || '',
     sections: finalSections,
     timeline,
+    // 老师更正过的地方：写进附录，方便你核对「作废的写法有没有被清掉」
+    corrections,
     generatedAt: new Date().toISOString(),
   };
 }

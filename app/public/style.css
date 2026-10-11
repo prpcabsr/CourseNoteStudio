@@ -507,6 +507,14 @@ a { color: var(--accent); text-decoration: none; }
 .fs-head b { font-size: 14px; }
 .fs-zoom { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 1px; }
 .fs-zoom .btn { border: none; }
+/* AI 审校：有实质性问题时的红色提示 */
+#auditBadge.warn { color: #d21f1f; font-weight: 600; }
+/* 红色感叹号：不用 ❗ 字符（会被系统按彩色 emoji 渲染，color 无效），用 CSS 画 */
+.err-flag {
+  display: inline-block; min-width: 13px; height: 13px; line-height: 13px; padding: 0 1px;
+  border-radius: 3px; background: #d21f1f; color: #fff !important;
+  font-weight: 700; font-size: 10.5px; text-align: center; font-family: Arial, sans-serif;
+}
 .fs-body { flex: 1; min-height: 0; display: flex; position: relative; }
 .fs-frame { flex: 1; min-width: 0; border: none; background: var(--panel); }
 .fs-ai {

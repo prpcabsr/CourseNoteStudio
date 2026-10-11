@@ -64,7 +64,7 @@ function locateAnchor(markdown, rawAnchor) {
 
   const compact = anchor.replace(/\s+/g, '');
   const lines = plain.split('\n');
-  // 按「去掉空白」后的偏移把位置映射回原行
+  // 从原行的某个位置起，取「len 个非空白字符」——按字符数直接切会因为空格而少字
   const sliceFrom = (line, compactIdx, len) => {
     let k = 0;
     let seen = 0;
@@ -72,7 +72,13 @@ function locateAnchor(markdown, rawAnchor) {
       if (!/\s/.test(line[k])) seen++;
       k++;
     }
-    return line.slice(k, k + Math.max(6, len)).trim();
+    const start = k;
+    let taken = 0;
+    while (k < line.length && taken < len) {
+      if (!/\s/.test(line[k])) taken++;
+      k++;
+    }
+    return line.slice(start, k).trim();
   };
   if (compact.length >= 4) {
     for (const line of lines) {

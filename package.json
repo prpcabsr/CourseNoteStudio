@@ -38,7 +38,9 @@
     "test:json": "node tests/json-check.mjs",
     "test:ui": "node tests/ui-check.mjs",
     "test:grid": "node tests/grid-check.mjs",
-    "test:ask": "node tests/ask-scope-check.mjs"
+    "test:ask": "node tests/ask-scope-check.mjs",
+    "test:audit": "node tests/audit-check.mjs",
+    "test:correction": "node tests/correction-check.mjs"
   },
   "engines": {
     "node": ">=20"

@@ -6,6 +6,7 @@ import { transcribe, punctuate, asrAssets } from './asr.mjs';
 import { probeVideo } from './detect.mjs';
 import { readBoardImage, vlmAssets, stopLocalServer } from './vision.mjs';
 import { synthesize, fmtTime } from './fusion.mjs';
+import { auditNotes } from './audit.mjs';
 import { grabFrame, run, ffmpeg } from './proc.mjs';
 import { buildHtml, buildMarkdown, htmlToPdf, ensureKatexAssets, ASSET_DIR } from './render.mjs';
 import { loadConfig } from './config.mjs';
@@ -18,6 +19,7 @@ export const STAGES = [
   { id: 'visual', label: '逐帧追踪板书', desc: '扫描画面变化，抓取每一屏完整板书' },
   { id: 'read', label: '识别板书内容', desc: '视觉模型读取黑板上的字迹与公式' },
   { id: 'think', label: '组织笔记', desc: '对齐讲稿与板书，整理成结构化笔记' },
+  { id: 'audit', label: '审校纠错', desc: '复核公式与结论，实质错误用红标指出' },
   { id: 'render', label: '排版出稿', desc: '生成网页版与 Markdown（PDF 按需导出）' },
 ];
 
@@ -327,6 +329,26 @@ export async function runPipeline({ projectId, onEvent = () => {}, force = {} })
     }
     writeJson(path.join(P.work, 'doc.json'), doc);
     markStage('think', 'done', { sections: doc.sections.length });
+
+    // ---------------------------------------------------------- 5.5 AI 审校
+    // 出稿前先复核一遍：笔记里如果留下根本性错误（公式错、结论错、条件缺失），
+    // 用红色感叹号标出来。误报比漏报更伤信任，所以只报「实质错误」。
+    markStage('audit', 'running');
+    try {
+      const issues = await auditNotes({
+        projectId,
+        cfg,
+        onEvent: emit,
+        signal,
+        concurrency: cfg.llm.concurrency,
+        bustCache: !!force.think,
+      });
+      markStage('audit', 'done', { issues: issues.length });
+    } catch (e) {
+      // 审校失败不该拖垮整个流程（比如 Key 失效），记一条日志继续出稿
+      emit({ type: 'log', level: 'warn', message: `AI 审校跳过：${e.message}` });
+      markStage('audit', 'done', { issues: 0, skipped: true });
+    }
 
     // ---------------------------------------------------------- 6. 排版出稿
     markStage('render', 'running');

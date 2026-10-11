@@ -187,6 +187,27 @@ figure figcaption { background: color-mix(in srgb, var(--paper-bg) 88%, transpar
   };
 }
 
+/**
+ * 把 AI 审校发现的「根本错误」烧进正文：在出问题那句话后面插一个红色感叹号。
+ * 直接烧进 HTML 的好处：PDF 里有、关掉 AI 批注也看得见。
+ */
+export function injectAuditFlags(markdown, items) {
+  let md = String(markdown || '');
+  if (!items || !items.length) return md;
+  // 从后往前插，避免前面的插入影响后面 anchor 的位置
+  const found = items
+    .map((it) => ({ it, i: md.indexOf(it.anchor) }))
+    .filter((x) => x.i >= 0)
+    .sort((a, b) => b.i - a.i);
+  for (const { it, i } of found) {
+    // 用 CSS 画一个红底白叹号：不能直接写 ❗ —— 那个字符会被系统按彩色 emoji 渲染，
+    // color 根本不起作用，看起来是个黑/彩色的图标，不符合「显眼红色」的要求
+    const flag = ` <span class="err-flag" title="${escapeHtml(it.title)}">!</span>`;
+    md = md.slice(0, i + it.anchor.length) + flag + md.slice(i + it.anchor.length);
+  }
+  return md;
+}
+
 const CSS = (opts = {}) => {
   const paper = PAPER_STYLES[opts.paperStyle] || PAPER_STYLES.white;
   const font = FONT_STACKS[opts.font] || FONT_STACKS.system;
@@ -216,6 +237,20 @@ table { border-collapse:collapse; width:100%; margin:8pt 0; font-size:9.8pt; }
 th,td { border:1px solid var(--line); padding:4.5pt 7pt; text-align:left; vertical-align:top; }
 th { background:#eef3fb; font-weight:600; }
 hr { border:none; border-top:1px solid var(--line); margin:14pt 0; }
+/* AI 审校标出的根本错误：红色感叹号。关掉 AI 批注也一直看得见。
+   注意：这里不能用 ❗ 字符 —— 它会被系统当彩色 emoji 渲染，color 无效。
+   所以用 CSS 画一个红底白叹号，任何环境下都是红的。 */
+.err-flag {
+  display: inline-block; min-width: 13px; height: 13px; line-height: 13px;
+  padding: 0 1px; margin: 0 2px; border-radius: 3px;
+  background: #d21f1f; color: #fff !important;
+  font-weight: 700; font-size: 10.5px; text-align: center; vertical-align: 1px;
+  font-family: Arial, sans-serif;
+}
+.audit-card { border-left:3px solid #d21f1f; background: rgba(210,31,31,.05); padding:6pt 10pt; margin:8pt 0; border-radius:0 6px 6px 0; }
+.audit-card h4 { color:#d21f1f; margin:0 0 3pt; font-size:11pt; }
+.audit-card .where { color:#5b6472; font-size:9pt; margin-bottom:4pt; }
+.audit-card .quote { color:#7a2020; font-size:9.6pt; background:rgba(210,31,31,.06); border-radius:4px; padding:3pt 6pt; margin:4pt 0; }
 
 /* 封面 */
 .cover { padding: 26mm 0 10mm; }
@@ -366,7 +401,9 @@ export function buildHtml(
 
   // 正文
   for (const s of doc.sections) {
-    const body = s.markdown.replace(/^#{1,3}\s*.+$/m, '').trim();
+    let body = s.markdown.replace(/^#{1,3}\s*.+$/m, '').trim();
+    // AI 审校发现的根本错误：在出问题那句后面插红色感叹号（烧进 HTML，关掉批注也看得见）
+    body = injectAuditFlags(body, (doc.audit || []).filter((a) => a.section === s.index));
     if (!body && !s.images.length) continue;
     parts.push('<section class="section">');
     parts.push(`<h2 class="section-head"><span class="sec-no">${String(s.index + 1).padStart(2, '0')}</span><span>${escapeHtml(s.title)}</span><span class="sec-time">${fmtTime(s.start)} – ${fmtTime(s.end)}</span></h2>`);
@@ -389,6 +426,44 @@ export function buildHtml(
   }
   if (doc.quiz && doc.quiz.trim()) {
     parts.push('<section class="section"><h2>复习自测</h2>' + mdToHtml(doc.quiz) + '</section>');
+  }
+
+  // 附录：AI 审校发现的问题（正文里已经有红色感叹号，这里给出完整说明）
+  const audit = Array.isArray(doc.audit) ? doc.audit : [];
+  if (audit.length) {
+    parts.push('<section class="appendix"><h2>附录 · AI 审校发现的问题</h2>');
+    parts.push(
+      '<p style="color:#5b6472;font-size:9pt">出稿后由模型逐节复核，只列<b>实质性错误</b>（公式错、结论错、条件缺失导致结论不成立、概念混淆）；表述与排版问题不算。正文里对应位置有红色感叹号 ❗。</p>',
+    );
+    let n = 0;
+    for (const a of audit) {
+      n++;
+      parts.push('<div class="audit-card">');
+      parts.push(`<h4><span class="err-flag">!</span> 问题 ${n}：${escapeHtml(a.title)}</h4>`);
+      parts.push(
+        `<div class="where">第 ${(a.section ?? 0) + 1} 节${a.sectionTitle ? ' · ' + escapeHtml(a.sectionTitle) : ''}</div>`,
+      );
+      if (a.anchor) parts.push(`<div class="quote">原文：${textToHtml(String(a.anchor).slice(0, 200), { inlineMath: true })}</div>`);
+      parts.push(`<div>${textToHtml(String(a.detail || ''), { inlineMath: true })}</div>`);
+      parts.push('</div>');
+    }
+    parts.push('</section>');
+  }
+
+  // 附录：老师更正过的地方（正文只留最终版本，这里留档便于核对）
+  const fixes = Array.isArray(doc.corrections) ? doc.corrections : [];
+  if (fixes.length) {
+    parts.push('<section class="appendix"><h2>附录 · 老师更正过的地方</h2>');
+    parts.push(
+      '<p style="color:#5b6472;font-size:9pt">课堂上老师发现写错后会擦掉重写或口头更正。程序会保留每一代板书（所以错误那一版也在材料里），整理时已经按<b>更正后的最终版本</b>写进正文，并在正文里标注了更正位置。下表留给核对用。</p>',
+    );
+    parts.push('<table><thead><tr><th style="width:64pt">时间</th><th style="width:78pt">类型</th><th>老师原话</th></tr></thead><tbody>');
+    for (const c of fixes) {
+      parts.push(
+        `<tr><td>${fmtTime(c.t)}</td><td>${escapeHtml(c.label || '更正')}</td><td>${textToHtml(String(c.text || '').slice(0, 240), { inlineMath: true })}</td></tr>`,
+      );
+    }
+    parts.push('</tbody></table></section>');
   }
 
   // 附录：板书时间线（按板书块分组：每块给一张最完整的截图 + 全部识别文字）
