@@ -32,6 +32,10 @@ const checks = [
   ['批注箭头指向具体句子（Range 定位）', js.includes('anchorRange') && js.includes('getClientRects')],
   ['句子下面画下划线标记', js.includes('一眼看出箭头指的是哪一句')],
   ['全屏铺满底纸（不再做成卡片）', !js.includes('e9edf3')],
+  ['批注固定在右侧留白（不压正文）', js.includes('noteLeft = contentRight')],
+  ['连线是小曲线（三次贝塞尔）', js.includes('function curvePath')],
+  ['连线终点抬到行上沿（走行间空隙）', js.includes('anchorRect.top + win.scrollY - 3')],
+  ['批注文字行高跟随格子', js.includes('line-height: var(--rule-h, 24px)')],
 ];
 
 let bad = 0;

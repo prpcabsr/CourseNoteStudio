@@ -908,6 +908,13 @@ function drawMarginNotesInner() {
   // 正文的格子高度：批注的落点也对齐到格子，看起来就像写在同一条横线上
   const ruleH = parseFloat(getComputedStyle(doc.documentElement).getPropertyValue('--rule-h')) || 0;
   const snapTop = (y) => (ruleH > 4 ? Math.max(0, Math.floor(y / ruleH) * ruleH + 2) : y);
+  // 批注统一排在正文栏右边的留白里（不能跟着句子走，否则会压住正文）
+  const pageEl = doc.querySelector('.page') || doc.body;
+  const pageRect = pageEl.getBoundingClientRect();
+  const pagePadRight = parseFloat(getComputedStyle(pageEl).paddingRight) || 0;
+  const contentRight = pageRect.right - pagePadRight;
+  const noteLeft = contentRight + 26;
+  const noteW = 240;
   let made = 0;
   const placed = []; // 已经放下的批注，用来避免互相压住
   for (const it of supp.items) {
@@ -915,17 +922,15 @@ function drawMarginNotesInner() {
     if (!target) continue;
     const key = suppKey(it.anchor);
     const hit = anchorRange(doc, target, key);
-    // 优先用「那一句话」的坐标；拿不到才退回整个段落的坐标
     const anchorRect = hit ? hit.rect : target.getBoundingClientRect();
-    const base = target.getBoundingClientRect();
-    let top = snapTop(anchorRect.top + win.scrollY + Math.min(12, Math.max(0, anchorRect.height / 2 - 8)));
-    void base;
-    const left = anchorRect.right + win.scrollX + 34;
+    let top = snapTop(anchorRect.top + win.scrollY + Math.min(10, Math.max(0, anchorRect.height / 2 - 8)));
+    const left = noteLeft + win.scrollX;
 
     const note = doc.createElement('div');
     note.className = 'note' + (isDark ? ' dark' : '');
     note.style.left = left + 'px';
     note.style.top = top + 'px';
+    note.style.width = noteW + 'px';
     note.style.setProperty('--hand', handStack);
     note.style.setProperty('--supp-font', getComputedStyle(document.documentElement).getPropertyValue('--supp-font').trim());
     note.style.setProperty('--supp-size', getComputedStyle(document.documentElement).getPropertyValue('--supp-size').trim());
@@ -960,18 +965,19 @@ function drawMarginNotesInner() {
     }
     placed.push({ left, top, h });
 
-    // 箭头：从批注左边缘一直伸到「那一句话」的右边，并在句子下面画一条下划线
-    const fromX = left - 6;
-    const fromY = top + 14;
-    const toX = anchorRect.right + win.scrollX + 8;
-    const toY = anchorRect.top + win.scrollY + anchorRect.height / 2;
-    const midX = fromX - Math.max(28, Math.min(160, (fromX - toX) * 0.45));
+    // 小曲线虚线：从批注左边缘连到「那一句话」的右上角外侧，
+    // 终点抬高到这一行的上沿，线走在行间空隙里，不和正文重叠
+    const fromX = left - 8;
+    const fromY = top + 12;
+    const toX = anchorRect.right + win.scrollX + 12;
+    const toY = anchorRect.top + win.scrollY - 3;
     const p = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
-    p.setAttribute('d', `M ${fromX} ${fromY} C ${midX} ${fromY}, ${midX} ${toY}, ${toX} ${toY}`);
+    p.setAttribute('d', curvePath(fromX, fromY, toX, toY));
     p.setAttribute('fill', 'none');
     p.setAttribute('stroke', accent);
     p.setAttribute('stroke-width', '1.4');
-    p.setAttribute('stroke-dasharray', '6 3');
+    p.setAttribute('stroke-dasharray', '6 4');
+    p.setAttribute('stroke-linecap', 'round');
     p.setAttribute('marker-end', 'url(#aiArrowHead)');
     p.setAttribute('opacity', '.9');
     svg.appendChild(p);
@@ -995,6 +1001,17 @@ function drawMarginNotesInner() {
     ? `已在右侧空白处标出 ${made} 处补充（虚线箭头指向对应段落，想看详细解释点「在一页里看全部」）`
     : `生成了 ${supp.items.length} 条补充，但没能在成稿里找到对应段落，请到「补充讲解」页查看`;
   return made;
+}
+
+/**
+ * 连线：一条平滑的小曲线（三次贝塞尔）。
+ * 控制点沿水平方向外推，整条线只拐一次（曲率为 0 的点至多一处）。
+ * 终点落在「那一行的上沿」，让线走在行与行的空隙里，不压住正文。
+ */
+function curvePath(x0, y0, x1, y1) {
+  const dx = Math.abs(x0 - x1);
+  const k = Math.max(26, Math.min(130, dx * 0.5));
+  return `M ${x0} ${y0} C ${x0 - k} ${y0}, ${x1 + k * 0.7} ${y1 - 6}, ${x1} ${y1}`;
 }
 
 /**
