@@ -195,12 +195,17 @@
 
           <div class="pane hidden" data-pane="preview">
             <div class="preview-bar">
-              <span id="previewHint">成稿生成后可在此预览（与 PDF 完全一致的排版）。</span>
+              <span id="previewHint">成稿生成后可在此预览。</span>
               <span class="spacer"></span>
+              <button class="btn small primary" id="btnExportPdf">📄 导出 PDF</button>
+              <a class="btn small hidden" id="btnPdf" target="_blank">打开 PDF</a>
               <a class="btn small hidden" id="linkHtml" target="_blank">在新窗口打开</a>
               <a class="btn small hidden" id="linkMd">下载 Markdown</a>
             </div>
-            <iframe id="previewFrame" class="preview-frame hidden"></iframe>
+            <div class="preview-wrap">
+              <button class="btn small icon-only preview-fs" id="btnPreviewFs" title="全屏预览（Esc 退出）">⛶</button>
+              <iframe id="previewFrame" class="preview-frame hidden"></iframe>
+            </div>
 
             <!-- AI 补充：针对成稿里没讲到但很关键的知识点，在旁边空白处加批注 -->
             <div class="ai-supp" id="aiSupp">
@@ -318,6 +323,29 @@
           </div>
         </aside>
         <button class="ai-rail hidden" id="aiRail" title="展开 AI 问答面板">🤖<span>问 AI</span></button>
+
+        <!-- 全屏预览：右边一条窄边可以滑出 AI 问答 -->
+        <div class="fs-overlay hidden" id="fsOverlay">
+          <div class="fs-head">
+            <b id="fsTitle">成稿预览</b>
+            <span class="tiny">按 Esc 或点右上角 ✕ 退出全屏</span>
+            <span class="spacer"></span>
+            <button class="btn small ghost" id="fsAiToggle">🤖 问 AI</button>
+            <button class="btn small ghost icon-only" id="fsClose" title="退出全屏">✕</button>
+          </div>
+          <div class="fs-body">
+            <iframe id="fsFrame" class="fs-frame"></iframe>
+            <aside class="fs-ai hidden" id="fsAi">
+              <div class="fs-ai-head">
+                <b>问 AI</b>
+                <span class="spacer"></span>
+                <button class="btn small ghost icon-only" id="fsAiHide" title="收起">✕</button>
+              </div>
+              <div class="fs-ai-slot" id="fsAiSlot"></div>
+            </aside>
+            <button class="fs-rail hidden" id="fsRail" title="呼出 AI 问答">🤖<span>问 AI</span></button>
+          </div>
+        </div>
       </section>
     </main>
   </div>
@@ -386,6 +414,7 @@
         </select>
       </label>
       <label>课程名称（写入 PDF 封面）<input class="input" id="cfgCourse"></label>
+      <label class="chk-line"><input type="checkbox" id="cfgAutoPdf"> 生成后自动导出 PDF（默认关闭，按需点「导出 PDF」）</label>
       <label class="chk-line"><input type="checkbox" id="cfgIncludeTranscript"> PDF 里附完整讲稿</label>
       <label class="chk-line"><input type="checkbox" id="cfgIncludeBoardImages"> PDF 里插入板书配图</label>
       <label class="chk-line"><input type="checkbox" id="cfgIncludeBoardTimeline"> PDF 里附板书全时间线</label>

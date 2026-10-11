@@ -49,6 +49,7 @@ export const DEFAULTS = {
     includeTimestamp: true,
     paper: 'A4',
     paperStyle: 'white', // white | cream | lined（米黄横线笔记本纸）
+    autoPdf: false, // 关掉：生成笔记后不自动出 PDF，由「导出 PDF」按钮触发
     // 正文外观
     font: 'wenkai', // system | wenkai | kaiti | songti
     fontSize: 10.8, // pt

@@ -18,7 +18,7 @@ export const STAGES = [
   { id: 'visual', label: '逐帧追踪板书', desc: '扫描画面变化，抓取每一屏完整板书' },
   { id: 'read', label: '识别板书内容', desc: '视觉模型读取黑板上的字迹与公式' },
   { id: 'think', label: '组织笔记', desc: '对齐讲稿与板书，整理成结构化笔记' },
-  { id: 'render', label: '排版出稿', desc: '生成 PDF 与 Markdown' },
+  { id: 'render', label: '排版出稿', desc: '生成网页版与 Markdown（PDF 按需导出）' },
 ];
 
 /** 归一化板书文字，用于判断「这一屏有没有比上一屏多出内容」。 */
@@ -338,6 +338,7 @@ export async function runPipeline({ projectId, onEvent = () => {}, force = {} })
       transcriptIn: transcript,
       stateIn: state,
       cfgIn: cfg,
+      makePdf: false, // 首次生成不出 PDF，等用户在界面上点「导出 PDF」
     });
     patchState(projectId, {
       stage: 'done',
@@ -373,7 +374,7 @@ export async function runPipeline({ projectId, onEvent = () => {}, force = {} })
  * 只做排版：从 work/doc.json 重建 HTML / Markdown / PDF，
  * 不调用任何模型、不重新识别。改了排版样式或公式规范化规则后用它即可。
  */
-export async function renderProject({ projectId, onEvent = () => {}, docIn, mediaInfoIn, transcriptIn, stateIn, cfgIn } = {}) {
+export async function renderProject({ projectId, onEvent = () => {}, docIn, mediaInfoIn, transcriptIn, stateIn, cfgIn, makePdf = null } = {}) {
   const P = projectPaths(projectId);
   const cfg = cfgIn || loadConfig();
   const state = stateIn || loadState(projectId) || { id: projectId, input: '' };
@@ -435,13 +436,21 @@ export async function renderProject({ projectId, onEvent = () => {}, docIn, medi
   const mdPath = path.join(P.out, 'notes.md');
   fs.writeFileSync(mdPath, buildMarkdown(doc, meta), 'utf8');
   const safeTitle = (doc.title || '课程笔记').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
-  // 清理旧的 PDF（标题可能变了）
-  for (const f of fs.readdirSync(P.out)) if (f.endsWith('.pdf')) fs.rmSync(path.join(P.out, f), { force: true });
-  let pdfPath = null;
-  try {
-    pdfPath = await htmlToPdf({ htmlPath, pdfPath: path.join(P.out, `${safeTitle}.pdf`), onEvent });
-  } catch (e) {
-    onEvent({ type: 'log', level: 'error', message: `PDF 生成失败：${e.message}（HTML 已生成，可用浏览器打印）` });
+  // 是否生成 PDF：
+  //   makePdf=true/false 明确指定；
+  //   不指定时——已经有 PDF（重新排版要跟着更新）或用户开了「自动导出」才生成。
+  //   默认不生成，等用户点「导出 PDF」。
+  const wantPdf = makePdf === null ? !!(state.output?.pdf || cfg.output.autoPdf) : !!makePdf;
+  let pdfPath = state.output?.pdf || null;
+  if (wantPdf) {
+    // 清理旧的 PDF（标题可能变了）
+    for (const f of fs.readdirSync(P.out)) if (f.endsWith('.pdf')) fs.rmSync(path.join(P.out, f), { force: true });
+    try {
+      pdfPath = await htmlToPdf({ htmlPath, pdfPath: path.join(P.out, `${safeTitle}.pdf`), onEvent });
+    } catch (e) {
+      pdfPath = null;
+      onEvent({ type: 'log', level: 'error', message: `PDF 生成失败：${e.message}（HTML 已生成，可用浏览器打印）` });
+    }
   }
   patchState(projectId, { stage: 'done', output: { html: htmlPath, md: mdPath, pdf: pdfPath, docTitle: doc.title } });
   return { pdfPath, htmlPath, mdPath, doc };
@@ -450,6 +459,14 @@ export async function renderProject({ projectId, onEvent = () => {}, docIn, medi
 /** 只重跑「组织笔记 + 排版」两步（改了提示词或模型后快速重试）。 */
 export async function rerunNotes({ projectId, onEvent = () => {} }) {
   return runPipeline({ projectId, onEvent, force: { think: true, render: true } });
+}
+
+/** 按需导出 PDF：只重排版（不调用模型），并强制生成 PDF。 */
+export async function exportPdf({ projectId, onEvent = () => {} }) {
+  onEvent({ type: 'log', message: '正在导出 PDF…' });
+  const r = await renderProject({ projectId, onEvent, makePdf: true });
+  if (!r.pdfPath) throw new Error('PDF 生成失败，请看运行日志');
+  return r;
 }
 
 export { stopLocalServer, ffmpeg, run };

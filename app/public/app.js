@@ -730,8 +730,15 @@ function drawMarginNotes() {
   }
 }
 
+/** 当前该画到哪个 iframe 里：全屏时画全屏的那个。 */
+function activePreviewFrame() {
+  const fs = $('#fsFrame');
+  if (fs && !$('#fsOverlay').classList.contains('hidden')) return fs;
+  return $('#previewFrame');
+}
+
 function drawMarginNotesInner() {
-  const frame = $('#previewFrame');
+  const frame = activePreviewFrame();
   if (!frame || frame.classList.contains('hidden') || !supp.items.length) return 0;
   let doc;
   try {
@@ -1182,24 +1189,97 @@ async function renderNotes() {
 }
 
 /* ─────────────── 预览 ─────────────── */
+/* ─────────────── 成稿预览：导出 PDF / 全屏 / 全屏里的 AI ─────────────── */
+let aiDockHome = null; // 记住 AI 面板原本的位置，从全屏退出来要放回去
+
+function rememberAiHome() {
+  const dock = $('#aiDock');
+  if (dock && !aiDockHome) aiDockHome = { parent: dock.parentElement, next: dock.nextSibling };
+}
+
+async function exportPdf() {
+  const p = state.current;
+  if (!p) return;
+  const btn = $('#btnExportPdf');
+  btn.disabled = true;
+  btn.textContent = '正在导出…';
+  try {
+    const r = await api.post(`/api/projects/${p.id}/export-pdf`, {});
+    toast('PDF 已生成：' + r.name, 'ok');
+    addLog('📄 PDF 已导出：' + r.name, 'ok');
+    if (state.current) state.current.output = { ...(state.current.output || {}), pdf: r.name };
+    updatePreviewLinks();
+    // 直接开一个新窗口让用户拿到 PDF
+    window.open(r.url, '_blank');
+  } catch (e) {
+    toast('导出失败：' + e.message, 'err');
+    btn.textContent = '📄 导出 PDF';
+  } finally {
+    btn.disabled = false;
+    if ($('#btnExportPdf').textContent === '正在导出…') $('#btnExportPdf').textContent = '📄 导出 PDF';
+  }
+}
+
+function enterFullscreenPreview() {
+  const url = $('#previewFrame')?.src;
+  if (!url) return;
+  $('#fsFrame').src = url;
+  $('#fsOverlay').classList.remove('hidden');
+  $('#fsTitle').textContent = state.current?.title || '成稿预览';
+  document.body.style.overflow = 'hidden';
+  // 全屏里默认收起 AI，留一条窄边
+  fsAiShow(false);
+  $('#fsFrame').addEventListener('load', () => setTimeout(drawMarginNotes, 300), { once: true });
+  setTimeout(drawMarginNotes, 600);
+}
+
+function exitFullscreenPreview() {
+  $('#fsOverlay').classList.add('hidden');
+  $('#fsFrame').src = 'about:blank';
+  document.body.style.overflow = '';
+  fsAiShow(false);
+}
+
+/** 全屏里把 AI 面板搬进侧边栏 / 搬回原位。 */
+function fsAiShow(show) {
+  const dock = $('#aiDock');
+  const slot = $('#fsAiSlot');
+  if (!dock || !slot) return;
+  if (show) {
+    rememberAiHome();
+    slot.appendChild(dock);
+    $('#fsAi').classList.remove('hidden');
+    $('#fsRail').classList.add('hidden');
+    $('#fsAiToggle').classList.add('primary');
+    setTimeout(() => $('#aiInput')?.focus(), 60);
+  } else {
+    if (aiDockHome && dock.parentElement === slot) aiDockHome.parent.insertBefore(dock, aiDockHome.next);
+    $('#fsAi').classList.add('hidden');
+    const overlayOpen = !$('#fsOverlay').classList.contains('hidden');
+    $('#fsRail').classList.toggle('hidden', !overlayOpen);
+    $('#fsAiToggle').classList.remove('primary');
+  }
+}
+
 function updatePreviewLinks() {
   const p = state.current; if (!p) return;
   const done = p.stage === 'done' || p.output?.html;
   $('#previewFrame').classList.toggle('hidden', !done);
   $('#linkHtml').classList.toggle('hidden', !done);
   $('#linkMd').classList.toggle('hidden', !done);
+  $('#btnExportPdf').classList.toggle('hidden', !done);
   if (done) {
     $('#previewFrame').src = `/api/projects/${p.id}/html`;
     $('#linkHtml').href = `/api/projects/${p.id}/html`;
     $('#linkMd').href = `/api/projects/${p.id}/file/${encodeURIComponent('notes.md')}?download`;
-    $('#previewHint').textContent = '以下为成稿预览（与 PDF 排版一致）。';
+    $('#previewHint').textContent = '以下为成稿预览。PDF 需要的话点「导出 PDF」。';
     loadSupplements();
   }
   $('#aiSupp').classList.toggle('hidden', !done);
   const pdf = p.output?.pdf;
   const btn = $('#btnPdf');
   btn.classList.toggle('hidden', !pdf);
-  if (pdf) btn.href = `/api/projects/${p.id}/file/${encodeURIComponent(pdf.split(/[\\/]/).pop())}`;
+  if (pdf) btn.href = `/api/projects/${p.id}/file/${encodeURIComponent(String(pdf).split(/[\\/]/).pop())}`;
 }
 
 /* ─────────────── 日志 ─────────────── */
@@ -1411,6 +1491,7 @@ async function openDrawer() {
   $('#cfgImgWidth').value = cfg.capture.imageWidth;
   $('#cfgCookies').value = cfg.download.cookiesFromBrowser || '';
   $('#cfgCourse').value = cfg.output.courseName || '';
+  $('#cfgAutoPdf').checked = !!cfg.output.autoPdf;
   $('#cfgIncludeTranscript').checked = !!cfg.output.includeTranscript;
   $('#cfgIncludeBoardImages').checked = !!cfg.output.includeBoardImages;
   $('#cfgIncludeBoardTimeline').checked = !!cfg.output.includeBoardTimeline;
@@ -1436,6 +1517,7 @@ async function saveCfg() {
     download: { cookiesFromBrowser: $('#cfgCookies').value },
     output: {
       courseName: $('#cfgCourse').value.trim(),
+      autoPdf: $('#cfgAutoPdf').checked,
       includeTranscript: $('#cfgIncludeTranscript').checked,
       includeBoardImages: $('#cfgIncludeBoardImages').checked,
       includeBoardTimeline: $('#cfgIncludeBoardTimeline').checked,
@@ -1593,6 +1675,17 @@ function bind() {
   $$('#viewSearch .seg').forEach((b) => (b.onclick = () => { searchSetMode(b.dataset.smode); runSearch(search.q); }));
   $('#btnSearchBack').onclick = () => (state.current ? (location.hash = `#/p/${state.current.id}`) : goHome());
 
+  // 导出 PDF / 全屏预览 / 全屏里的 AI
+  $('#btnExportPdf').onclick = exportPdf;
+  $('#btnPreviewFs').onclick = enterFullscreenPreview;
+  $('#fsClose').onclick = exitFullscreenPreview;
+  $('#fsAiToggle').onclick = () => fsAiShow($('#fsAi').classList.contains('hidden'));
+  $('#fsAiHide').onclick = () => fsAiShow(false);
+  $('#fsRail').onclick = () => fsAiShow(true);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('#fsOverlay').classList.contains('hidden')) exitFullscreenPreview();
+  });
+
   // AI 补充
   $('#btnSupp').onclick = () => runSupplements(false);
   $('#btnSuppRegen').onclick = () => { if (confirm('重新生成会覆盖现在的补充内容，继续？')) runSupplements(true); };
@@ -1673,6 +1766,19 @@ async function install(ids) {
     $('#searchInput').value = q0;
     searchSetMode(params.get('mode') === 'ai' ? 'ai' : 'exact');
     runSearch(q0);
+  }
+  // 支持 /?fs=1 打开任务后直接进全屏预览；&fsai=1 顺带把 AI 面板拉出来
+  if (params.get('fs') === '1') {
+    const tryFs = (n = 0) => {
+      if (state.current) {
+        activateTab('preview');
+        setTimeout(() => {
+          enterFullscreenPreview();
+          if (params.get('fsai') === '1') setTimeout(() => fsAiShow(true), 800);
+        }, 900);
+      } else if (n < 20) setTimeout(() => tryFs(n + 1), 300);
+    };
+    tryFs();
   }
   window.addEventListener('hashchange', routeFromHash);
   // 支持 ?nosse 用于静态截图/调试（避免长连接让无头浏览器一直处于加载状态）

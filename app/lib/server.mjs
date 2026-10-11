@@ -7,7 +7,7 @@ import { PUBLIC_DIR, findEdge, findFfmpeg, findSherpaCli, findLlamaServer, MODEL
 import { catalogStatus, install, installMany, CORE_IDS, cancelDownload, CATALOG } from './download.mjs';
 import { loadConfig, updateConfig, resolveLlmKey, maskKey } from './config.mjs';
 import { createProject, listProjects, loadState, projectPaths, deleteProject, readJson, writeJson } from './project.mjs';
-import { runPipeline, cancelProject, isRunning, renderProject, STAGES } from './pipeline.mjs';
+import { runPipeline, cancelProject, isRunning, renderProject, exportPdf, STAGES } from './pipeline.mjs';
 import { vlmStatus, stopLocalServer, localServerInfo, askWithImages } from './vision.mjs';
 import { callLlm } from './fusion.mjs';
 import { searchExact, searchAi, invalidateSearchCache } from './search.mjs';
@@ -425,12 +425,25 @@ export function startServer({ port = 7788, host = '127.0.0.1', open = true, auto
           return send(res, 200, { ok });
         }
         // 只重新排版（不调用模型，用于修正公式渲染/版式后快速出新 PDF）
+        if (rest === '/export-pdf' && req.method === 'POST') {
+          try {
+            const r = await exportPdf({
+              projectId: id,
+              onEvent: (ev) => broadcast({ ...ev, projectId: id }),
+            });
+            const name = r.pdfPath.split(/[\\/]/).pop();
+            broadcast({ type: 'pdf-ready', projectId: id, name });
+            return send(res, 200, { ok: true, name, url: `/api/projects/${id}/file/${encodeURIComponent(name)}` });
+          } catch (e) {
+            return send(res, 500, { error: e.message });
+          }
+        }
         if (rest === '/rerender' && req.method === 'POST') {
           if (isRunning(id)) return send(res, 409, { error: '这个任务正在运行' });
           broadcast({ projectId: id, type: 'log', message: '▶ 重新排版（不重新识别）' });
           renderProject({ projectId: id, onEvent: broadcast })
             .then((r) => {
-              broadcast({ projectId: id, type: 'log', message: `排版完成：${r.pdfPath ? path.basename(r.pdfPath) : '（PDF 未生成）'}`, level: r.pdfPath ? 'ok' : 'error' });
+              broadcast({ projectId: id, type: 'log', message: `排版完成：${r.pdfPath ? path.basename(r.pdfPath) : '网页版已更新（PDF 需点「导出 PDF」）'}`, level: 'ok' });
               broadcast({ projectId: id, type: 'rerender-done', pdf: r.pdfPath, html: r.htmlPath });
             })
             .catch((e) => broadcast({ projectId: id, type: 'failed', message: e.message }));

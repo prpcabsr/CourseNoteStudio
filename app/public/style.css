@@ -490,6 +490,41 @@ a { color: var(--accent); text-decoration: none; }
 .look-card output { font-size: 12px; color: var(--text-3); margin-left: 6px; }
 .look-card .tiny { margin-top: 6px; line-height: 1.6; }
 
+/* ── 成稿预览：全屏 + 全屏里的 AI 侧边栏 ── */
+.preview-wrap { position: relative; }
+.preview-fs {
+  position: absolute; right: 10px; top: 10px; z-index: 5; opacity: .5; transition: .15s;
+  background: var(--panel); border: 1px solid var(--line); font-size: 15px;
+}
+.preview-fs:hover { opacity: 1; border-color: var(--accent); color: var(--accent); }
+.fs-overlay {
+  position: fixed; inset: 0; z-index: 80; background: var(--bg); display: flex; flex-direction: column;
+}
+.fs-head {
+  display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line);
+  background: var(--panel); flex: 0 0 auto;
+}
+.fs-head b { font-size: 14px; }
+.fs-body { flex: 1; min-height: 0; display: flex; position: relative; }
+.fs-frame { flex: 1; min-width: 0; border: none; background: var(--panel); }
+.fs-ai {
+  flex: 0 0 380px; width: 380px; border-left: 1px solid var(--line); background: var(--panel);
+  display: flex; flex-direction: column; min-height: 0;
+}
+.fs-ai-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--line); flex: 0 0 auto; }
+.fs-ai-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.fs-ai-slot .ai-dock { flex: 1; width: 100%; border-left: none; height: auto; min-height: 0; }
+/* 侧边栏已经有「问 AI」标题了，面板自带的那一行就不用重复显示 */
+.fs-ai-slot .ai-dock .ai-head { display: none; }
+.fs-ai-slot .ai-dock .ai-tip { border-top: none; }
+.fs-rail {
+  flex: 0 0 42px; width: 42px; background: var(--panel); border: none; border-left: 1px solid var(--line);
+  color: var(--accent); cursor: pointer; font-size: 17px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px; font-family: inherit;
+}
+.fs-rail span { writing-mode: vertical-rl; font-size: 12px; letter-spacing: .12em; color: var(--text-2); }
+.fs-rail:hover { background: var(--accent-soft); }
+
 /* 程序已退出时的提示 */
 .server-down { position: fixed; inset: 0; z-index: 95; background: rgba(10, 16, 26, .55); backdrop-filter: blur(3px); display: grid; place-items: center; padding: 24px; }
 .sd-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 24px 26px; max-width: 460px; box-shadow: var(--shadow); text-align: center; }
