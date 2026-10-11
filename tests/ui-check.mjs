@@ -36,6 +36,7 @@ const checks = [
   ['连线是小曲线（三次贝塞尔）', js.includes('function curvePath')],
   ['连线终点抬到行上沿（走行间空隙）', js.includes('anchorRect.top + win.scrollY - 3')],
   ['批注文字行高跟随格子', js.includes('line-height: var(--rule-h, 24px)')],
+  ['全屏保留批注留白（不被清掉）', js.includes('body.ai-supp-on { padding-right: 300px !important; }')],
 ];
 
 let bad = 0;

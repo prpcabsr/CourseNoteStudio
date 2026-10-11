@@ -83,10 +83,12 @@ function applyFsChrome() {
     st.id = 'fsChrome';
     doc.head.appendChild(st);
   }
-  // 全屏：不留白边，整屏都是同一张底纸；纸面留出正常页边距，横线铺满整幅
+  // 全屏：不留白边，整屏都是同一张底纸；纸面留出正常页边距，横线铺满整幅。
+  // 注意保留给批注预留的右边距（否则批注会被挤到页面外面去）
   st.textContent = `
     html, body { background: ${paperBg} !important; zoom:${zoom.toFixed(4)}; }
     body { margin:0 !important; padding:0 !important; }
+    body.ai-supp-on { padding-right: 300px !important; }
     .page {
       width:auto !important; max-width:none !important; margin:0 !important;
       min-height:100vh; padding:16mm 18mm !important; box-sizing:border-box;
