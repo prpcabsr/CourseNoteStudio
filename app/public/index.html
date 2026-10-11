@@ -331,11 +331,27 @@
         </select>
       </label>
       <label>课程名称（写入 PDF 封面）<input class="input" id="cfgCourse"></label>
+      <label>笔记字体（正文与 AI 补充统一使用）
+        <select id="cfgFont">
+          <option value="system">系统默认（黑体）</option>
+          <option value="wenkai">霞鹜文楷 · 硬笔手写</option>
+          <option value="kaiti">楷体</option>
+          <option value="songti">宋体</option>
+        </select>
+      </label>
+      <div class="tiny" id="fontHint"></div>
+      <label>纸张样式（成稿预览与 PDF）
+        <select id="cfgPaperStyle">
+          <option value="white">纯白 A4</option>
+          <option value="cream">米黄色 A4（无横线）</option>
+          <option value="lined">米黄色横线笔记本纸</option>
+        </select>
+      </label>
       <label class="chk-line"><input type="checkbox" id="cfgIncludeTranscript"> PDF 里附完整讲稿</label>
       <label class="chk-line"><input type="checkbox" id="cfgIncludeBoardImages"> PDF 里插入板书配图</label>
       <label class="chk-line"><input type="checkbox" id="cfgIncludeBoardTimeline"> PDF 里附板书全时间线</label>
     </div>
-    <p class="tiny">板书截图与时间线默认只放在网页「笔记章节」里看，这样 PDF 更干净；需要打印出来才勾选上面的选项。</p>
+    <p class="tiny">板书截图与时间线默认只放在网页「笔记章节」里看，这样 PDF 更干净；需要打印出来才勾选上面的选项。字体与纸张改完点「保存设置」，再到任务里点一次「重新排版」生效。</p>
 
     <div class="row gap">
       <button class="btn primary" id="btnSaveCfg">保存设置</button>

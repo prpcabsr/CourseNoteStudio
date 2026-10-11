@@ -98,15 +98,65 @@ export function textToHtml(text, { inlineMath = false } = {}) {
   return html.replace(/\n/g, '<br>');
 }
 
-const CSS = (opts = {}) => `
-:root { --ink:#1a1a1a; --sub:#5b6472; --line:#e2e6ec; --accent:#1f6feb; --accent2:#0b4ea2; --board:#f5f2e9; }
-* { box-sizing: border-box; }
-html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-body {
-  margin:0; color:var(--ink); background:#fff;
-  font-family:"Microsoft YaHei","PingFang SC","Source Han Sans SC","Segoe UI",system-ui,sans-serif;
-  font-size:10.8pt; line-height:1.72; letter-spacing:.01em;
+/** 可选正文字体。文楷（LXGW WenKai）是开源的硬笔手写风字体，需要先安装。 */
+export const FONT_STACKS = {
+  system: '"Microsoft YaHei","PingFang SC","Source Han Sans SC","Segoe UI",system-ui,sans-serif',
+  wenkai: '"LXGW WenKai","LXGW WenKai Screen","霞鹜文楷","KaiTi","楷体","Microsoft YaHei",serif',
+  kaiti: '"KaiTi","楷体","STKaiti","Kaiti SC","Microsoft YaHei",serif',
+  songti: '"SimSun","宋体","Songti SC","Noto Serif CJK SC","Microsoft YaHei",serif',
+};
+
+export const FONT_LABELS = {
+  system: '系统默认（黑体）',
+  wenkai: '霞鹜文楷 · 硬笔手写',
+  kaiti: '楷体',
+  songti: '宋体',
+};
+
+/** 纸张样式：纯白 / 米黄 / 米黄横线（笔记本纸） */
+export const PAPER_STYLES = {
+  white: { bg: '#ffffff', ink: '#1a1a1a', sub: '#5b6472', rule: '' },
+  cream: { bg: '#fbf5e6', ink: '#23201a', sub: '#6b6250', rule: '' },
+  lined: { bg: '#fdf9ee', ink: '#23201a', sub: '#6b6250', rule: '#e6dcc4', ruleH: 34, ruleOffset: 26 },
+};
+
+const CSS = (opts = {}) => {
+  const paper = PAPER_STYLES[opts.paperStyle] || PAPER_STYLES.white;
+  const font = FONT_STACKS[opts.font] || FONT_STACKS.system;
+  const lined = !!paper.rule;
+  const face = opts.fontFile
+    ? `@font-face{font-family:"LXGW WenKai";src:url("fonts/${opts.fontFile}") format("truetype");font-display:swap;}`
+    : '';
+  return `
+${face}
+:root {
+  --ink:${paper.ink}; --sub:${paper.sub}; --line:#e2e6ec; --accent:#1f6feb; --accent2:#0b4ea2; --board:#f5f2e9;
+  --paper-bg:${paper.bg}; --rule:${paper.rule || 'transparent'}; --rule-h:${paper.ruleH || 0}px; --rule-offset:${paper.ruleOffset || 0}px; --doc-font:${font};
 }
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: var(--paper-bg); }
+body {
+  margin:0; color:var(--ink); background: var(--paper-bg);
+  font-family: var(--doc-font);
+  font-size:10.8pt; line-height:${lined ? 'var(--rule-h)' : '1.72'}; letter-spacing:.01em;
+}
+${lined ? `/* 横线笔记本纸：行高 = 格子高度，横线落在每行文字下方；
+   段落/列表一律不额外留边距，否则纵向间距不是格子整数倍，文字就会压到线上 */
+.page {
+  background-image: repeating-linear-gradient(to bottom,
+    transparent 0, transparent calc(var(--rule-h) - 1px),
+    var(--rule) calc(var(--rule-h) - 1px), var(--rule) var(--rule-h));
+  background-position: 0 calc(var(--rule-offset) - var(--rule-h));
+}
+h1,h2,h3,h4 { line-height: var(--rule-h); }
+p, ul, ol, li, dl, dt, dd { margin-top: 0; margin-bottom: 0; }
+p, ul, ol { margin-bottom: var(--rule-h); }
+.callout, figure, table, pre, blockquote { margin: var(--rule-h) 0; }
+.section { margin-top: var(--rule-h); }
+.section-head { margin-bottom: 0; }
+.stat-row, .meta-table { margin-top: 0; }
+.cover { padding: calc(var(--rule-h) * 2) 0; }
+` : ''}
 .page { max-width: 190mm; margin: 0 auto; padding: 0 2mm; }
 h1,h2,h3,h4 { line-height:1.35; font-weight:700; color:#101418; }
 h1 { font-size:22pt; margin:0 0 6pt; }
@@ -180,6 +230,7 @@ figcaption { font-size:8.8pt; color:#46505f; padding:5pt 8pt; background:#fff; b
 @page { size:${opts.paper || 'A4'}; margin:16mm 14mm 15mm; }
 @media print { .page { max-width:none; padding:0; } h2 { page-break-after:avoid; } h3 { page-break-after:avoid; } }
 `;
+};
 
 function figCaption(img) {
   const tags = [];
@@ -226,7 +277,7 @@ export function buildHtml(
   parts.push(`<title>${escapeHtml(doc.title || '课程笔记')}</title>`);
   if (inlineAssets) parts.push(`<style>${inlineKatexCss()}</style>`);
   else parts.push(`<link rel="stylesheet" href="${relativeAssets}/katex.min.css">`);
-  parts.push(`<style>${CSS({ paper: meta.paper })}</style>`);
+  parts.push(`<style>${CSS({ paper: meta.paper, paperStyle: meta.paperStyle, font: meta.font, fontFile: meta.fontFile })}</style>`);
   parts.push('</head><body><div class="page">');
 
   // 封面

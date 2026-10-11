@@ -441,6 +441,13 @@ export function startServer({ port = 7788, host = '127.0.0.1', open = true, auto
           if (!abs) return send(res, 400, { error: 'bad path' });
           return serveStatic(res, abs);
         }
+        // 成稿里 @font-face 用的是相对路径 fonts/xxx.ttf，
+        // iframe 通过 /api/projects/<id>/html 加载，所以要在这里也能取到字体
+        if (rest.startsWith('/fonts/')) {
+          const abs = safeJoin(path.join(P.out, 'fonts'), rest.slice('/fonts/'.length));
+          if (!abs) return send(res, 400, { error: 'bad path' });
+          return serveStatic(res, abs);
+        }
         if (rest.startsWith('/file/')) {
           const name = decodeURIComponent(rest.slice('/file/'.length));
           const abs = safeJoin(P.out, name);

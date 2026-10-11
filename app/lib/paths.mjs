@@ -13,9 +13,10 @@ export const PROJECTS_DIR = path.join(DATA_DIR, 'projects');
 export const LOGS_DIR = path.join(ROOT, 'logs');
 export const CACHE_DIR = path.join(DATA_DIR, 'cache');
 export const PUBLIC_DIR = path.join(APP_DIR, 'public');
+export const FONTS_DIR = path.join(DATA_DIR, 'assets', 'fonts'); // 可选字体（霞鹜文楷等）
 export const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 
-for (const d of [TOOLS_DIR, MODELS_DIR, DATA_DIR, PROJECTS_DIR, LOGS_DIR, CACHE_DIR]) {
+for (const d of [TOOLS_DIR, MODELS_DIR, DATA_DIR, PROJECTS_DIR, LOGS_DIR, CACHE_DIR, FONTS_DIR]) {
   fs.mkdirSync(d, { recursive: true });
 }
 

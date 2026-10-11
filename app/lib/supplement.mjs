@@ -11,6 +11,12 @@ import path from 'node:path';
 import { projectPaths, loadState, readJson, writeJson } from './project.mjs';
 import { callLlm } from './fusion.mjs';
 import { parseLlmJson } from './json.mjs';
+import { mdToHtml } from './render.mjs';
+
+/** 旁注很短，一行内联公式：排好版但不要 <p> 包裹。 */
+function inlineMathHtml(text) {
+  return mdToHtml(String(text)).replace(/^<p>|<\/p>\s*$/g, '');
+}
 
 const SYSTEM = `你是一位非常擅长「补背景」的大学助教。学生手上有一份课堂笔记，你要找出**课上没讲、但不懂就会卡住**的关键点，写成旁注。
 
@@ -118,6 +124,9 @@ export async function generateSupplements({ projectId, cfg, onEvent = () => {} }
       anchor,
       title: String(it.title || '').trim(),
       short,
+      // 提前在服务端把公式排好版，前端（尤其是成稿 iframe 里）直接插入即可
+      shortHtml: inlineMathHtml(short),
+      moreHtml: mdToHtml(more).replace(/^<p>|<\/p>\s*$/g, ''),
       more,
       generatedAt: new Date().toISOString(),
     });

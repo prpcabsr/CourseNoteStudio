@@ -46,10 +46,35 @@ function toast(msg, kind = '') {
 }
 
 /* ─────────────── 环境状态 ─────────────── */
+/** 界面里也用同一套正文字体（AI 补充的旁注、补充讲解页），保持和成稿一致。 */
+const DOC_FONTS = {
+  system: '"Microsoft YaHei","PingFang SC","Source Han Sans SC",system-ui,sans-serif',
+  wenkai: '"LXGW WenKai","霞鹜文楷","KaiTi","楷体",serif',
+  kaiti: '"KaiTi","楷体","STKaiti",serif',
+  songti: '"SimSun","宋体","Songti SC",serif',
+};
+function applyDocFont(font) {
+  const stack = DOC_FONTS[font] || DOC_FONTS.system;
+  document.documentElement.style.setProperty('--doc-font', stack);
+  if (font === 'wenkai') {
+    // 让界面也能用上文楷：字体文件由 /api/assets/fonts/ 提供
+    if (!document.getElementById('docFontFace')) {
+      const s = document.createElement('style');
+      s.id = 'docFontFace';
+      s.textContent = `@font-face{font-family:"LXGW WenKai";src:url("/api/assets/fonts/lxgw-wenkai-regular.ttf") format("truetype");font-display:swap;}`;
+      document.head.appendChild(s);
+    }
+  }
+}
+
 async function refreshEnv() {
   try {
     state.env = await api.get('/api/status');
   } catch (e) { return; }
+  try {
+    const cfg = await api.get('/api/config');
+    applyDocFont(cfg.output?.font);
+  } catch {}
   const e = state.env;
   const pills = [
     ['FFmpeg', e.ffmpeg], ['语音识别', e.asr.ready],
@@ -584,8 +609,8 @@ function renderSupplements() {
     .map(
       (it) => `<div class="supp-item">
         <h4>${esc(it.title || '补充')}<span class="where">第 ${it.section} 节</span></h4>
-        <div class="short">${esc(it.short || '')}</div>
-        ${it.more ? `<div class="more">${mdSafe(it.more)}</div>` : ''}
+        <div class="short">${it.shortHtml || esc(it.short || '')}</div>
+        ${it.moreHtml || it.more ? `<div class="more">${it.moreHtml || mdSafe(it.more)}</div>` : ''}
         ${it.anchor ? `<div class="anchor">原文片段：${esc(it.anchor)}</div>` : ''}
       </div>`,
     )
@@ -659,11 +684,12 @@ function drawMarginNotesInner() {
       }
       #aiSuppLayer .note.dark { background: #2a2415; border-color: #6b5a20; color: #f0e3bb; }
       #aiSuppLayer .note h5 {
-        font-family: var(--hand, cursive); font-size: 16px; font-weight: 400; margin-bottom: 3px;
-        color: #a06a00; letter-spacing: .5px;
+        font-family: var(--doc-font, var(--hand, cursive)); font-size: 15px; font-weight: 400; margin-bottom: 3px;
+        color: #a06a00; letter-spacing: .4px;
       }
       #aiSuppLayer .note.dark h5 { color: #ffd166; }
-      #aiSuppLayer .note .t { font-family: var(--hand, cursive); font-size: 16.5px; line-height: 1.85; }
+      #aiSuppLayer .note .t { font-family: var(--doc-font, var(--hand, cursive)); font-size: 14.5px; line-height: 1.75; }
+      #aiSuppLayer .note .t .katex { font-size: 1.05em; }
       #aiSuppLayer .note a {
         display: inline-block; margin-top: 5px; font-size: 11.5px; color: #b45309; text-decoration: none;
         border-bottom: 1px dashed currentColor; cursor: pointer;
@@ -700,7 +726,7 @@ function drawMarginNotesInner() {
     note.style.left = left + 'px';
     note.style.top = top + 'px';
     note.style.setProperty('--hand', handStack);
-    note.innerHTML = `<h5>${esc(it.title || '补充')}</h5><div class="t">${esc(it.short || '')}</div>
+    note.innerHTML = `<h5>${esc(it.title || '补充')}</h5><div class="t">${it.shortHtml || esc(it.short || '')}</div>
       <a data-supp="${made}">了解更多 →</a>`;
     note.querySelector('a').onclick = (ev) => {
       ev.preventDefault();
@@ -1305,9 +1331,41 @@ async function openDrawer() {
   $('#cfgImgWidth').value = cfg.capture.imageWidth;
   $('#cfgCookies').value = cfg.download.cookiesFromBrowser || '';
   $('#cfgCourse').value = cfg.output.courseName || '';
+  $('#cfgFont').value = cfg.output.font || 'system';
+  $('#cfgPaperStyle').value = cfg.output.paperStyle || 'white';
+  updateFontHint(cfg);
   $('#cfgIncludeTranscript').checked = !!cfg.output.includeTranscript;
   $('#cfgIncludeBoardImages').checked = !!cfg.output.includeBoardImages;
   $('#cfgIncludeBoardTimeline').checked = !!cfg.output.includeBoardTimeline;
+}
+
+/** 文楷字体需要先下载，这里提示状态并提供一键安装。 */
+function updateFontHint(cfg) {
+  const el = $('#fontHint');
+  if (!el) return;
+  applyDocFont($('#cfgFont').value);
+  const has = (state.env?.resources || []).find((c) => c.id === 'font-wenkai');
+  const installed = has ? has.installed : false;
+  if ($('#cfgFont').value !== 'wenkai') {
+    el.innerHTML = '字体改动会在下次「重新排版」时生效。';
+    return;
+  }
+  el.innerHTML = installed
+    ? '✓ 霞鹜文楷已安装（开源字体，SIL 协议），排版时会自动嵌入。'
+    : '霞鹜文楷还没安装（约 19 MB，开源 SIL 协议），当前会退回到系统楷体。<button class="btn small" id="btnGetFont">立即安装字体</button>';
+  const b = $('#btnGetFont');
+  if (b) b.onclick = async () => {
+    b.disabled = true;
+    b.textContent = '正在下载…';
+    try {
+      await api.post('/api/install', { ids: ['font-wenkai'] });
+      toast('字体安装已开始，完成后会在环境面板显示', 'ok');
+    } catch (e) {
+      toast('安装失败：' + e.message, 'err');
+      b.disabled = false;
+      b.textContent = '立即安装字体';
+    }
+  };
 }
 function closeDrawer() { $('#drawer').classList.add('hidden'); $('#drawerMask').classList.add('hidden'); }
 
@@ -1329,6 +1387,8 @@ async function saveCfg() {
     download: { cookiesFromBrowser: $('#cfgCookies').value },
     output: {
       courseName: $('#cfgCourse').value.trim(),
+      font: $('#cfgFont').value,
+      paperStyle: $('#cfgPaperStyle').value,
       includeTranscript: $('#cfgIncludeTranscript').checked,
       includeBoardImages: $('#cfgIncludeBoardImages').checked,
       includeBoardTimeline: $('#cfgIncludeBoardTimeline').checked,

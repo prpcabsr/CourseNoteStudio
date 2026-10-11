@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { TOOLS_DIR, MODELS_DIR } from './paths.mjs';
+import { TOOLS_DIR, MODELS_DIR, FONTS_DIR } from './paths.mjs';
 import { humanSize } from './paths.mjs';
 
 const HF = 'https://hf-mirror.com';
@@ -105,10 +105,24 @@ export const CATALOG = {
     ],
     note: '体积更小，识别速度更快',
   },
+  'font-wenkai': {
+    label: '霞鹜文楷字体（硬笔手写风格，可作笔记正文）',
+    kind: 'files',
+    size: 20_000_000,
+    dest: FONTS_DIR,
+    files: [
+      {
+        url: 'https://github.com/lxgw/LxgwWenKai/releases/download/v1.520/LXGWWenKai-Regular.ttf',
+        name: 'lxgw-wenkai-regular.ttf',
+        size: 19_500_000,
+      },
+    ],
+    note: 'SIL 开源协议；装上后「笔记字体」里可选「霞鹜文楷」',
+  },
 };
 
 /** 推荐首次安装的集合（不含可选大模型）。 */
-export const CORE_IDS = ['ytdlp', 'ffmpeg', 'llamacpp-vulkan', 'sherpa', 'asr-sensevoice', 'asr-vad', 'asr-punct', 'vlm-qwen3vl-4b'];
+export const CORE_IDS = ['ytdlp', 'ffmpeg', 'llamacpp-vulkan', 'sherpa', 'asr-sensevoice', 'asr-vad', 'asr-punct', 'vlm-qwen3vl-4b', 'font-wenkai'];
 export const DEFAULT_VLM = 'vlm-qwen3vl-4b';
 
 // ---------------------------------------------------------------- 安装状态

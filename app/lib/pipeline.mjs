@@ -10,7 +10,7 @@ import { grabFrame, run, ffmpeg } from './proc.mjs';
 import { buildHtml, buildMarkdown, htmlToPdf, ensureKatexAssets, ASSET_DIR } from './render.mjs';
 import { loadConfig } from './config.mjs';
 import { projectPaths, loadState, patchState, readJson, writeJson } from './project.mjs';
-import { humanSize } from './paths.mjs';
+import { humanSize, FONTS_DIR } from './paths.mjs';
 
 export const STAGES = [
   { id: 'prepare', label: '获取视频', desc: '下载或读取视频文件' },
@@ -385,6 +385,18 @@ export async function renderProject({ projectId, onEvent = () => {}, docIn, medi
   ensureKatexAssets();
   const outFigures = path.join(P.out, 'figures');
   fs.mkdirSync(outFigures, { recursive: true });
+  // 笔记字体（可选）：把字体文件放到 out/fonts/ 下，HTML 用相对路径引用，
+  // 这样 iframe 预览和 Edge 打印（file://）都能加载到，不会踩跨域问题。
+  let fontFile = '';
+  if (cfg.output.font === 'wenkai') {
+    const src = path.join(FONTS_DIR, 'lxgw-wenkai-regular.ttf');
+    if (fs.existsSync(src)) {
+      const outFonts = path.join(P.out, 'fonts');
+      fs.mkdirSync(outFonts, { recursive: true });
+      fs.copyFileSync(src, path.join(outFonts, 'lxgw-wenkai-regular.ttf'));
+      fontFile = 'lxgw-wenkai-regular.ttf';
+    }
+  }
   const relNames = [
     ...doc.sections.flatMap((s) => (s.images || []).map((i) => i.relPath)),
     ...(doc.timeline || []).map((i) => i.relPath),
@@ -398,6 +410,9 @@ export async function renderProject({ projectId, onEvent = () => {}, docIn, medi
     title: doc.title || state.title || '课程笔记',
     course: state.options?.courseName || cfg.output.courseName || '',
     paper: cfg.output.paper,
+    paperStyle: cfg.output.paperStyle || 'white',
+    font: cfg.output.font || 'system',
+    fontFile,
     source: isUrl(state.input) ? state.input : '',
     durationText: fmtTime(media.duration || 0),
     transcriptChars: (transcript.segments || []).reduce((a, s) => a + s.text.length, 0),

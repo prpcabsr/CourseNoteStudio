@@ -48,6 +48,8 @@ export const DEFAULTS = {
     includeTranscript: false,
     includeTimestamp: true,
     paper: 'A4',
+    paperStyle: 'white', // white | cream | lined（米黄横线笔记本纸）
+    font: 'wenkai', // system | wenkai | kaiti | songti
     theme: 'paper',
   },
   download: {
