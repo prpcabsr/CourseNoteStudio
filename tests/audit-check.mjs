@@ -54,6 +54,10 @@ if (fs.existsSync(htmlFile)) {
       list.every((it) => it.verified === true),
       '所有改动都经过独立复核（verified）',
     );
+    // 说明里的公式必须已经排版好（界面上不能出现 $z_1+z_2=-1$ 这种源码）
+    const raw = list.filter((it) => /\$[a-zA-Z\\]/.test(String(it.detailHtml || '').replace(/<[^>]+>/g, '')));
+    say(raw.length === 0, `审校说明里的公式都已排版（裸公式 ${raw.length} 条）`);
+    say(list.every((it) => !it.detail || !it.detailHtml || it.detailHtml.includes('katex') || !/\$/.test(it.detail)), '有公式的说明都生成了 HTML');
   } else {
     console.log('· 这份成稿没有审校问题');
   }

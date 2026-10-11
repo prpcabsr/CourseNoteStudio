@@ -1013,7 +1013,7 @@ function drawMarginNotesInner() {
       const head = it.videoTime ? `与视频 ${it.videoTime} 不符` : '此处与视频不符';
       note.innerHTML =
         `<h5><span class="err-flag">!</span> ${esc(head)}</h5>` +
-        `<div class="t">${esc((it.detail || '').slice(0, 220))}</div>` +
+        `<div class="t">${it.detailHtml || esc((it.detail || '').slice(0, 220))}</div>` +
         (it.videoQuote ? `<div class="t" style="opacity:.75;font-size:.92em;margin-top:4px">老师原话：「${esc(it.videoQuote.slice(0, 90))}」</div>` : '');
     } else {
       note.innerHTML = `<h5>${esc(it.title || '补充')}</h5><div class="t">${it.shortHtml || esc(it.short || '')}</div>
@@ -1144,7 +1144,7 @@ function showErrCard(doc, el) {
       <b>${esc(item?.videoTime ? `与视频 ${item.videoTime} 不符` : '此处与视频不符')}</b>
       <button class="ec-close" title="关闭">✕</button>
     </div>
-    <div class="ec-body">${esc(item?.detail || '这一处已由 AI 审校按视频更正。')}</div>
+    <div class="ec-body">${item?.detailHtml || esc(item?.detail || '这一处已由 AI 审校按视频更正。')}</div>
     ${item?.videoQuote ? `<div class="ec-quote">老师原话：「${esc(item.videoQuote)}」</div>` : ''}
     <div class="ec-foot">正文已经改成正确写法了 · 附录里记着这条的出处</div>`;
   card.querySelector('.ec-close').onclick = () => card.remove();

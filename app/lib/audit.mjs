@@ -12,6 +12,7 @@ import { resolveLlmKey } from './config.mjs';
 import { callLlm } from './fusion.mjs';
 import { parseLlmJson } from './json.mjs';
 import { readJson, writeJson } from './project.mjs';
+import { textToHtml } from './render.mjs';
 
 function fmtClock(sec) {
   const s = Math.max(0, Math.round(Number(sec) || 0));
@@ -212,6 +213,8 @@ async function auditSection({ section, segments = [], cfg, cacheDir, bustCache, 
       anchor,
       title,
       detail,
+      // 预先把说明里的公式排好版：界面上直接用，避免显示成 $z_1+z_2=-1$ 这种源码
+      detailHtml: textToHtml(detail, { inlineMath: true }),
       fixed,
       videoTime,
       videoQuote,
@@ -306,9 +309,22 @@ export async function auditNotes({ projectId, cfg, onEvent = () => {}, signal, c
   return items;
 }
 
-/** 读取审校结果（没有就返回空）。 */
+/** 读取审校结果（没有就返回空）。旧数据缺 detailHtml 时现场补上，界面才不会显示成 LaTeX 源码。 */
 export function loadAudit(projectId) {
   const file = path.join(projectPaths(projectId).work, 'audit.json');
   if (!fs.existsSync(file)) return { items: [] };
-  return readJson(file) || { items: [] };
+  const data = readJson(file) || { items: [] };
+  let patched = false;
+  for (const it of data.items || []) {
+    if (!it.detailHtml && it.detail) {
+      it.detailHtml = textToHtml(it.detail, { inlineMath: true });
+      patched = true;
+    }
+  }
+  if (patched) {
+    try {
+      writeJson(file, data);
+    } catch {}
+  }
+  return data;
 }
