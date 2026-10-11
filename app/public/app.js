@@ -199,7 +199,7 @@ function switchView(v) {
 
 /** 切换标签页（也支持用 ?tab=notes 之类的地址直接打开某一页） */
 function activateTab(name) {
-  const t = $$('#tabs .tab').find((x) => x.dataset.tab === name);
+  const t = $$('#tabs .tab, #tabsSub .tab').find((x) => x.dataset.tab === name);
   if (t) t.click();
 }
 
@@ -557,6 +557,249 @@ async function openSearchHit(hit) {
   $('#noteList')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+/* ─────────────── AI 补充（成稿预览里的旁注 + 补充讲解页） ─────────────── */
+const supp = { items: [], on: true, busy: false };
+
+async function loadSupplements() {
+  if (!state.current) return;
+  try {
+    const r = await api.get(`/api/projects/${state.current.id}/supplements`);
+    supp.items = r.items || [];
+  } catch {
+    supp.items = [];
+  }
+  renderSupplements();
+  if (supp.items.length) setTimeout(drawMarginNotes, 200); // iframe 可能已经加载完了
+}
+
+function renderSupplements() {
+  const n = supp.items.length;
+  $('#tabsSub').classList.toggle('hidden', n === 0);
+  $('#badgeSupp').textContent = n;
+  $('#linkSupp').classList.toggle('hidden', n === 0);
+  $('#suppToggleWrap').classList.toggle('hidden', n === 0);
+  $('#suppEmpty').classList.toggle('hidden', n > 0);
+  $('#suppMeta').textContent = n ? `共 ${n} 条 · 按章节顺序排列` : '';
+  $('#suppList').innerHTML = supp.items
+    .map(
+      (it) => `<div class="supp-item">
+        <h4>${esc(it.title || '补充')}<span class="where">第 ${it.section} 节</span></h4>
+        <div class="short">${esc(it.short || '')}</div>
+        ${it.more ? `<div class="more">${mdSafe(it.more)}</div>` : ''}
+        ${it.anchor ? `<div class="anchor">原文片段：${esc(it.anchor)}</div>` : ''}
+      </div>`,
+    )
+    .join('');
+  renderMath($('#suppList'));
+}
+
+async function runSupplements(force = false) {
+  if (!state.current || supp.busy) return;
+  if (!force && supp.items.length) return;
+  supp.busy = true;
+  const btn = $('#btnSupp');
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '✨ 正在分析课程…';
+  $('#suppHint').textContent = 'AI 正在通读全部章节，找出课程里没讲但很关键的知识点（约 10–30 秒）…';
+  try {
+    const r = await api.post(`/api/projects/${state.current.id}/supplements`, {});
+    supp.items = r.items || [];
+    renderSupplements();
+    $('#suppHint').textContent = supp.items.length
+      ? `已补充 ${supp.items.length} 条，看右侧空白处的批注；想看详细解释点「在一页里看全部」。`
+      : 'AI 认为这份笔记已经比较完整，没有需要额外补充的关键点。';
+    if (supp.items.length) {
+      drawMarginNotes();
+      toast(`已补充 ${supp.items.length} 条`, 'ok');
+    }
+  } catch (e) {
+    $('#suppHint').textContent = '失败：' + e.message;
+  } finally {
+    supp.busy = false;
+    btn.disabled = false;
+    btn.textContent = old === '✨ 正在分析课程…' ? '✨ AI 补充' : old;
+  }
+}
+
+/** 把旁注画进成稿预览（iframe 内同源，可以直接操作它的 DOM）。 */
+function drawMarginNotes() {
+  try {
+    return drawMarginNotesInner();
+  } catch (e) {
+    $('#suppHint').textContent = '批注绘制失败：' + e.message;
+    return 0;
+  }
+}
+
+function drawMarginNotesInner() {
+  const frame = $('#previewFrame');
+  if (!frame || frame.classList.contains('hidden') || !supp.items.length) return 0;
+  let doc;
+  try {
+    doc = frame.contentDocument;
+  } catch {
+    return 0;
+  }
+  if (!doc || !doc.body) return 0;
+  const win = frame.contentWindow;
+  const old = doc.getElementById('aiSuppLayer');
+  if (old) old.remove();
+
+  const layer = doc.createElement('div');
+  layer.id = 'aiSuppLayer';
+  layer.innerHTML = `
+    <style>
+      #aiSuppLayer { position: absolute; top: 0; left: 0; width: 0; height: 0; z-index: 60; }
+      #aiSuppLayer .note {
+        position: absolute; width: 232px; padding: 9px 11px; box-sizing: border-box;
+        background: #fffdf5; border: 1px solid #e8d9a8; border-left: 3px solid #e0a800; border-radius: 8px;
+        box-shadow: 0 4px 14px -8px rgba(120,90,0,.55); font-size: 12.5px; line-height: 1.75;
+        transform: rotate(-.5deg); pointer-events: auto; color: #4a3a12;
+      }
+      #aiSuppLayer .note.dark { background: #2a2415; border-color: #6b5a20; color: #f0e3bb; }
+      #aiSuppLayer .note h5 {
+        font-family: var(--hand, cursive); font-size: 16px; font-weight: 400; margin-bottom: 3px;
+        color: #a06a00; letter-spacing: .5px;
+      }
+      #aiSuppLayer .note.dark h5 { color: #ffd166; }
+      #aiSuppLayer .note .t { font-family: var(--hand, cursive); font-size: 16.5px; line-height: 1.85; }
+      #aiSuppLayer .note a {
+        display: inline-block; margin-top: 5px; font-size: 11.5px; color: #b45309; text-decoration: none;
+        border-bottom: 1px dashed currentColor; cursor: pointer;
+      }
+      #aiSuppLayer .note a:hover { color: #ea580c; }
+      #aiSuppLayer svg { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; }
+      body.ai-supp-on { padding-right: 288px; }
+    </style>`;
+  doc.body.appendChild(layer);
+  doc.body.classList.toggle('ai-supp-on', supp.on);
+  if (!supp.on) return 0;
+  const handStack = getComputedStyle(document.documentElement).getPropertyValue('--hand').trim();
+
+  const scrollW = Math.max(doc.documentElement.scrollWidth, doc.body.scrollWidth);
+  const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('width', scrollW);
+  svg.setAttribute('height', 100);
+  svg.innerHTML = `<defs><marker id="aiArrowHead" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 z" fill="#d97706"/></marker></defs>`;
+  layer.appendChild(svg);
+
+  const isDark = document.documentElement.dataset.theme === 'dark';
+  let made = 0;
+  const placed = []; // 已经放下的批注，用来避免互相压住
+  for (const it of supp.items) {
+    const target = findAnchorElement(doc, it);
+    if (!target) continue;
+    const r = target.getBoundingClientRect();
+    let top = r.top + win.scrollY + Math.min(18, Math.max(0, r.height / 2 - 10));
+    const left = r.right + win.scrollX + 34;
+
+    const note = doc.createElement('div');
+    note.className = 'note' + (isDark ? ' dark' : '');
+    note.style.left = left + 'px';
+    note.style.top = top + 'px';
+    note.style.setProperty('--hand', handStack);
+    note.innerHTML = `<h5>${esc(it.title || '补充')}</h5><div class="t">${esc(it.short || '')}</div>
+      <a data-supp="${made}">了解更多 →</a>`;
+    note.querySelector('a').onclick = (ev) => {
+      ev.preventDefault();
+      activateTab('supp');
+      const card = $$('#suppList .supp-item')[supp.items.indexOf(it)];
+      if (card) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card.classList.add('flash');
+        setTimeout(() => card.classList.remove('flash'), 2200);
+      }
+    };
+    layer.appendChild(note); // 先放进去才能量到真实高度
+
+    // 用实际高度往下挪，直到不和已放置的批注重叠
+    let h = note.offsetHeight || 96;
+    for (let guard = 0; guard < 30; guard++) {
+      const clash = placed.find((p) => Math.abs(p.left - left) < 260 && top < p.top + p.h + 8 && top + h > p.top);
+      if (!clash) break;
+      top = clash.top + clash.h + 12;
+      note.style.top = top + 'px';
+      h = note.offsetHeight || h;
+    }
+    placed.push({ left, top, h });
+
+    // 箭头：从批注指向原文
+    const fromX = left - 6;
+    const fromY = top + 16;
+    const toX = r.right + win.scrollX + 6;
+    const toY = r.top + win.scrollY + Math.min(r.height / 2, 16);
+    const midX = (fromX + toX) / 2;
+    const p = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p.setAttribute('d', `M ${fromX} ${fromY} C ${midX} ${fromY}, ${midX} ${toY}, ${toX} ${toY}`);
+    p.setAttribute('fill', 'none');
+    p.setAttribute('stroke', '#d97706');
+    p.setAttribute('stroke-width', '1.5');
+    p.setAttribute('stroke-dasharray', '5 3');
+    p.setAttribute('marker-end', 'url(#aiArrowHead)');
+    p.setAttribute('opacity', '.85');
+    svg.appendChild(p);
+    made++;
+  }
+  svg.setAttribute('height', Math.max(doc.body.scrollHeight, 100));
+  $('#suppHint').textContent = made
+    ? `已在右侧空白处标出 ${made} 处补充（虚线箭头指向对应段落，想看详细解释点「在一页里看全部」）`
+    : `生成了 ${supp.items.length} 条补充，但没能在成稿里找到对应段落，请到「补充讲解」页查看`;
+  return made;
+}
+
+/**
+ * 在成稿里找到 anchor 所在的段落元素。
+ * 注意：成稿里的公式已经被 KaTeX 渲染成 DOM，$f(x)$ 在页面上不是这几个字符了，
+ * 所以两边都去掉公式，只拿「普通文字」比对。
+ */
+function suppPlain(el) {
+  const clone = el.cloneNode(true);
+  clone.querySelectorAll('.katex, .katex-display, math, annotation').forEach((n) => n.remove());
+  return clone.textContent.replace(/\s+/g, '');
+}
+function suppKey(anchor) {
+  return String(anchor || '')
+    .replace(/\$\$[^$]*\$\$|\$[^$]*\$/g, '')
+    .replace(/\\[a-zA-Z]+/g, '')
+    .replace(/\s+/g, '');
+}
+
+function findAnchorElement(doc, item) {
+  // 只认正文的 <section class="section">——目录、封面、附录也是 <section>，不能算进来
+  const secs = [...doc.querySelectorAll('section.section')];
+  let scope = secs[item.section - 1];
+  // 优先按章节标题定位（笔记重新生成后节号可能变，标题更稳）
+  if (item.sectionTitle) {
+    const t = String(item.sectionTitle).replace(/\s+/g, '');
+    const byTitle = secs.find((s) => (s.querySelector('h2')?.textContent || '').replace(/\s+/g, '').includes(t));
+    if (byTitle) scope = byTitle;
+  }
+  if (!scope) scope = doc.body;
+  const cands = [...scope.querySelectorAll('p, li, h3, h4, td, blockquote')].filter((el) => el.textContent.trim().length > 8);
+
+  const key = suppKey(item.anchor);
+  if (key.length >= 3) {
+    let best = null;
+    for (const el of cands) {
+      if (suppPlain(el).includes(key)) {
+        if (!best || el.textContent.length < best.textContent.length) best = el; // 取最小的那个
+      }
+    }
+    if (best) return best;
+  }
+  // 锚点几乎全是公式时的兜底：拿原始 anchor（去掉 $）直接比对
+  const raw = String(item.anchor || '').replace(/\$/g, '').replace(/\s+/g, '');
+  if (raw.length >= 4) {
+    for (const el of cands) {
+      if (el.textContent.replace(/\s+/g, '').includes(raw)) return el;
+    }
+  }
+  // 再兜底：该节第一个有内容的段落
+  return cands.find((el) => el.tagName === 'P' && el.textContent.trim().length > 20) || cands[0] || null;
+}
+
 async function aiSend() {
   if (ai.busy) return;
   const input = $('#aiInput');
@@ -844,7 +1087,9 @@ function updatePreviewLinks() {
     $('#linkHtml').href = `/api/projects/${p.id}/html`;
     $('#linkMd').href = `/api/projects/${p.id}/file/${encodeURIComponent('notes.md')}?download`;
     $('#previewHint').textContent = '以下为成稿预览（与 PDF 排版一致）。';
+    loadSupplements();
   }
+  $('#aiSupp').classList.toggle('hidden', !done);
   const pdf = p.output?.pdf;
   const btn = $('#btnPdf');
   btn.classList.toggle('hidden', !pdf);
@@ -1181,11 +1426,19 @@ function bind() {
   $$('.side-search .seg').forEach((b) => (b.onclick = () => { searchSetMode(b.dataset.mode); if ($('#searchInput').value.trim()) runSearch(); }));
   $$('#viewSearch .seg').forEach((b) => (b.onclick = () => { searchSetMode(b.dataset.smode); runSearch(search.q); }));
   $('#btnSearchBack').onclick = () => (state.current ? (location.hash = `#/p/${state.current.id}`) : goHome());
+
+  // AI 补充
+  $('#btnSupp').onclick = () => runSupplements(false);
+  $('#btnSuppRegen').onclick = () => { if (confirm('重新生成会覆盖现在的补充内容，继续？')) runSupplements(true); };
+  $('#linkSupp').onclick = () => activateTab('supp');
+  $('#chkSuppOn').onchange = (e) => { supp.on = e.target.checked; drawMarginNotes(); };
+  $('#previewFrame').addEventListener('load', () => setTimeout(drawMarginNotes, 300));
   // 面板默认常驻（除非用户上次主动收起）
   aiToggle(localStorage.getItem('cns-ai-open') !== '0');
-  $$('#tabs .tab').forEach((t) => t.onclick = () => {
-    $$('#tabs .tab').forEach((x) => x.classList.toggle('active', x === t));
+  $$('#tabs .tab, #tabsSub .tab').forEach((t) => t.onclick = () => {
+    $$('#tabs .tab, #tabsSub .tab').forEach((x) => x.classList.toggle('active', x === t));
     $$('.pane').forEach((p) => p.classList.toggle('hidden', p.dataset.pane !== t.dataset.tab));
+    if (t.dataset.tab === 'preview') setTimeout(drawMarginNotes, 350); // iframe 尺寸变了要重画
   });
 
   // 拖拽视频文件

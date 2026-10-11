@@ -11,6 +11,7 @@ import { runPipeline, cancelProject, isRunning, renderProject, STAGES } from './
 import { vlmStatus, stopLocalServer, localServerInfo, askWithImages } from './vision.mjs';
 import { callLlm } from './fusion.mjs';
 import { searchExact, searchAi, invalidateSearchCache } from './search.mjs';
+import { generateSupplements, loadSupplements } from './supplement.mjs';
 import { asrAssets } from './asr.mjs';
 import { isUrl } from './ingest.mjs';
 import { mdToHtml } from './render.mjs';
@@ -369,6 +370,22 @@ export function startServer({ port = 7788, host = '127.0.0.1', open = true, auto
         // ---- 笔记 AI 问答
         if (rest === '/chat' && req.method === 'GET') {
           return send(res, 200, readJson(path.join(P.work, 'chat.json')) || []);
+        }
+        // ---- AI 补充（旁注）
+        if (rest === '/supplements' && req.method === 'GET') {
+          return send(res, 200, loadSupplements(id));
+        }
+        if (rest === '/supplements' && req.method === 'POST') {
+          const cfg = loadConfig();
+          const { key } = resolveLlmKey(cfg);
+          if (!key) return send(res, 400, { error: 'AI 补充需要文本模型 Key，请在「环境与模型 → 文本模型」里配置' });
+          try {
+            const out = await generateSupplements({ projectId: id, cfg });
+            broadcast({ type: 'supplement-done', projectId: id, count: out.items.length });
+            return send(res, 200, out);
+          } catch (e) {
+            return send(res, 500, { error: 'AI 补充失败：' + e.message });
+          }
         }
         if (rest === '/chat/clear' && req.method === 'POST') {
           writeJson(path.join(P.work, 'chat.json'), []);

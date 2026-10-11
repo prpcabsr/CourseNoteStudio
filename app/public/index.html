@@ -175,6 +175,10 @@
           <button class="tab" data-tab="preview">成稿预览</button>
           <button class="tab" data-tab="logs">运行日志</button>
         </div>
+        <!-- 第二行标签：AI 补充（生成后才出现，像浏览器标签一样单独一行） -->
+        <div class="tabs tabs-sub hidden" id="tabsSub">
+          <button class="tab tab-supp" data-tab="supp">📖 补充讲解<span class="badge" id="badgeSupp">0</span></button>
+        </div>
 
         <div class="tab-body">
           <div class="pane" data-pane="board">
@@ -196,6 +200,26 @@
               <a class="btn small hidden" id="linkMd">下载 Markdown</a>
             </div>
             <iframe id="previewFrame" class="preview-frame hidden"></iframe>
+
+            <!-- AI 补充：针对成稿里没讲到但很关键的知识点，在旁边空白处加批注 -->
+            <div class="ai-supp" id="aiSupp">
+              <button class="btn primary" id="btnSupp">✨ AI 补充</button>
+              <span class="tiny" id="suppHint">让 AI 找出课程里没讲到、但理解本节很关键的知识点，写在右侧空白处。</span>
+              <span class="spacer"></span>
+              <label class="chk hidden" id="suppToggleWrap"><input type="checkbox" id="chkSuppOn" checked> 显示批注</label>
+              <a class="btn small hidden" id="linkSupp">在一页里看全部 →</a>
+            </div>
+          </div>
+
+          <div class="pane hidden" data-pane="supp">
+            <div class="supp-head">
+              <b>补充讲解</b>
+              <span class="tiny" id="suppMeta"></span>
+              <span class="spacer"></span>
+              <button class="btn small ghost" id="btnSuppRegen">重新生成</button>
+            </div>
+            <div class="supp-list" id="suppList"></div>
+            <div class="empty" id="suppEmpty">还没有补充内容。到「成稿预览」里点一下「✨ AI 补充」。</div>
           </div>
 
           <div class="pane hidden" data-pane="logs">
