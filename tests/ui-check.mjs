@@ -7,6 +7,7 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const html = fs.readFileSync(path.join(ROOT, 'app', 'public', 'index.html'), 'utf8');
 const js = fs.readFileSync(path.join(ROOT, 'app', 'public', 'app.js'), 'utf8');
 const css = fs.readFileSync(path.join(ROOT, 'app', 'public', 'style.css'), 'utf8');
+const server = fs.readFileSync(path.join(ROOT, 'app', 'lib', 'server.mjs'), 'utf8');
 
 const checks = [
   ['导出 PDF 按钮', html.includes('id="btnExportPdf"')],
@@ -22,7 +23,7 @@ const checks = [
   ['全屏缩放控件', html.includes('id="fsZoomIn"') && html.includes('id="fsZoomOut"') && html.includes('id="fsZoomFit"')],
   ['全屏呈现成 A4 纸', js.includes('applyFsChrome') && js.includes('210mm')],
   ['外观设置同时注入预览与全屏', js.includes("['#previewFrame', '#fsFrame']")],
-  ['全屏 iframe 载入后补画外观与批注', js.includes("applyLookToDoc($('#fsFrame').contentDocument)")],
+  ['全屏 iframe 载入后补画外观与批注', js.includes('applyFsChrome();') && js.includes("hookAuditFlags($('#fsFrame').contentDocument)")],
   ['已移除「打开 PDF」按钮', !html.includes('id="btnPdf"')],
   ['外观改动自动存为默认', js.includes('scheduleLookSave')],
   ['外观 CSS 由服务端统一提供', js.includes('/api/look.css')],
@@ -40,6 +41,12 @@ const checks = [
   ['补充讲解里右键也能问 AI', js.includes("el.closest('.supp-item, .fs-detail-body')")],
   ['AI 回答里右键可追问', js.includes("el.closest('.ai-msg')")],
   ['全屏 iframe 也挂了右键菜单', js.includes("hookFrame($('#fsFrame'))")],
+  ['红标可点击弹说明', js.includes('function showErrCard') && js.includes('hookAuditFlags')],
+  ['审校徽标可跳转到红标', js.includes('function gotoAuditFlag') && html.includes('id="auditBadge"')],
+  ['红标在关掉批注后仍可点（独立于批注层）', js.includes('红标是烧在成稿里的，和批注开关无关')],
+  ['审校已改成自动（没有手动按钮）', !html.includes('id="btnAudit"') && js.includes('function renderAuditBadge')],
+  ['重新排版会自动补做审校', server.includes('这份成稿还没审校过')],
+  ['静态资源禁用缓存（改了代码不会看到旧界面）', server.includes("'cache-control': 'no-store, must-revalidate'")],
 ];
 
 let bad = 0;

@@ -87,7 +87,16 @@ function safeJoin(root, rel) {
 function serveStatic(res, abs) {
   if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) return send(res, 404, { error: 'not found' });
   const ext = path.extname(abs).toLowerCase();
-  res.writeHead(200, { 'content-type': MIME[ext] || 'application/octet-stream', 'cache-control': 'no-cache' });
+  const st = fs.statSync(abs);
+  // 必须 no-store：本地程序改了代码之后，浏览器若拿缓存，用户按 F5 看到的还是旧界面
+  // （之前踩过好几次）。只写 no-cache 而没有 ETag/Last-Modified 时，浏览器没法重新校验，
+  // 照样会用缓存。
+  res.writeHead(200, {
+    'content-type': MIME[ext] || 'application/octet-stream',
+    'cache-control': 'no-store, must-revalidate',
+    pragma: 'no-cache',
+    etag: `W/"${st.size}-${Math.round(st.mtimeMs).toString(36)}"`,
+  });
   fs.createReadStream(abs).pipe(res);
 }
 
@@ -478,6 +487,24 @@ export function startServer({ port = 7788, host = '127.0.0.1', open = true, auto
         }
         if (rest === '/rerender' && req.method === 'POST') {
           if (isRunning(id)) return send(res, 409, { error: '这个任务正在运行' });
+          // 审校是自动工序：新任务在流水线里就会做。老任务（出稿时还没有审校这一步）
+          // 在这里补一次，这样用户不用额外点任何按钮也能拿到红标。
+          try {
+            const P = projectPaths(id);
+            const doc = readJson(path.join(P.work, 'doc.json'));
+            if (doc && !Array.isArray(doc.audit) && resolveLlmKey(loadConfig())) {
+              broadcast({ projectId: id, type: 'log', message: 'AI 审校：这份成稿还没审校过，先补做一次…' });
+              const cfg = loadConfig();
+              await auditNotes({
+                projectId: id,
+                cfg,
+                onEvent: (ev) => broadcast({ ...ev, projectId: id }),
+                concurrency: cfg.llm.concurrency,
+              });
+            }
+          } catch (e) {
+            broadcast({ projectId: id, type: 'log', level: 'warn', message: `AI 审校跳过：${e.message}` });
+          }
           broadcast({ projectId: id, type: 'log', message: '▶ 重新排版（不重新识别）' });
           renderProject({ projectId: id, onEvent: broadcast })
             .then((r) => {

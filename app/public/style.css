@@ -508,7 +508,8 @@ a { color: var(--accent); text-decoration: none; }
 .fs-zoom { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 1px; }
 .fs-zoom .btn { border: none; }
 /* AI 审校：有实质性问题时的红色提示 */
-#auditBadge.warn { color: #d21f1f; font-weight: 600; }
+#auditBadge.warn { color: #d21f1f; font-weight: 600; border-color: #e6b3b3; background: rgba(210, 31, 31, .07); }
+#auditBadge.warn:hover { background: rgba(210, 31, 31, .14); border-color: #d21f1f; }
 /* 红色感叹号：不用 ❗ 字符（会被系统按彩色 emoji 渲染，color 无效），用 CSS 画 */
 .err-flag {
   display: inline-block; min-width: 13px; height: 13px; line-height: 13px; padding: 0 1px;

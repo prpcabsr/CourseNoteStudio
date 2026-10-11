@@ -764,57 +764,42 @@ async function openSearchHit(hit) {
 const supp = { items: [], on: true, busy: false };
 // AI 审校：只含「根本错误」。红色感叹号已经烧进成稿（关掉批注也看得见），
 // 这里的数据用来在开着批注时画出红色批注说明。
-const audit = { items: [] };
+const audit = { items: [], cursor: 1 };
+let pendingAuditJump = false; // ?audit=1 时，等审校数据加载完再跳
 
 async function loadSupplements() {
   if (!state.current) return;
   try {
+    // 这个接口顺带返回 AI 审校结果（红色提醒与红色批注都要用）
     const r = await api.get(`/api/projects/${state.current.id}/supplements`);
     supp.items = r.items || [];
+    audit.items = r.audit || [];
   } catch {
     supp.items = [];
+    audit.items = [];
   }
   renderSupplements();
   renderAuditBadge();
   if (supp.items.length || audit.items.length) setTimeout(drawMarginNotes, 200); // iframe 可能已经加载完了
+  if (pendingAuditJump && audit.items.length) {
+    pendingAuditJump = false;
+    activateTab('preview');
+    setTimeout(() => gotoAuditFlag(0), 1200);
+  }
 }
 
-/** 右上角的审校状态：有根本错误就红字提醒。 */
+/** 右上角的审校状态：点一下直接跳到正文对应的红标。 */
 function renderAuditBadge() {
   const el = $('#auditBadge');
   if (!el) return;
   const n = audit.items.length;
   el.classList.toggle('hidden', !n);
-  el.classList.toggle('warn', n > 0);
-  el.textContent = n ? `AI 审校发现 ${n} 处实质性问题（正文有红标，见附录）` : '';
-}
-
-/** 手动跑一次 AI 审校（会重新排版，好把红标写进成稿）。 */
-async function runAudit() {
-  const p = state.current;
-  if (!p) return;
-  const btn = $('#btnAudit');
-  btn.disabled = true;
-  btn.textContent = '审校中…';
-  $('#suppHint').textContent = '正在逐节复核公式与结论，大约要一两分钟…';
-  try {
-    const r = await api.post(`/api/projects/${p.id}/audit`, {});
-    audit.items = r.items || [];
-    renderAuditBadge();
-    $('#suppHint').textContent = audit.items.length
-      ? `审校完成：发现 ${audit.items.length} 处实质性问题，已在正文用红色感叹号标出`
-      : '审校完成：没有发现实质性问题 ✓';
-    toast(audit.items.length ? `发现 ${audit.items.length} 处问题，已标红` : '没有发现实质性问题', audit.items.length ? 'err' : 'ok');
-    // 成稿被重新排版过，刷新预览与批注
-    $('#previewFrame').src = `/api/projects/${p.id}/html?t=${Date.now()}`;
-    setTimeout(drawMarginNotes, 900);
-  } catch (e) {
-    $('#suppHint').textContent = '审校失败：' + e.message;
-    toast('审校失败：' + e.message, 'err');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '🔍 AI 审校';
+  if (!n) {
+    el.textContent = '';
+    return;
   }
+  const cur = Math.min(audit.cursor || 1, n);
+  el.textContent = `AI 审校发现 ${n} 处实质性问题 · 点这里定位第 ${cur} 处 →`;
 }
 
 function renderSupplements() {
@@ -933,6 +918,33 @@ function drawMarginNotesInner() {
       }
       #aiSuppLayer .note.audit h5 { color: #d21f1f; }
       #aiSuppLayer .note.audit .t { color: #9c1616; }
+      /* 点红色感叹号后就地弹出的小卡片：说明这里错在哪 */
+      #errCard {
+        position: absolute; z-index: 70; width: 330px; box-sizing: border-box;
+        padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.75;
+        background: #fff; color: #23201a; border: 1px solid #e6b3b3;
+        border-left: 4px solid #d21f1f; box-shadow: 0 12px 30px -12px rgba(120, 20, 20, .45);
+        font-family: system-ui, "Microsoft YaHei", sans-serif; text-align: left;
+      }
+      #errCard .ec-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+      #errCard .ec-head b { color: #d21f1f; font-size: 13.5px; flex: 1; }
+      #errCard .ec-close {
+        border: none; background: transparent; color: #98a2b3; cursor: pointer;
+        font-size: 15px; line-height: 1; padding: 2px 4px;
+      }
+      #errCard .ec-close:hover { color: #d21f1f; }
+      #errCard .ec-quote {
+        color: #7a2020; background: rgba(210, 31, 31, .07); border-radius: 4px;
+        padding: 4px 7px; margin: 4px 0 6px; font-size: 12.5px;
+      }
+      #errCard .ec-body { color: #3a3a3a; font-size: 12.8px; }
+      #errCard .ec-foot { margin-top: 8px; font-size: 11.5px; color: #98a2b3; }
+      .err-flag { cursor: pointer; }
+      .err-flag.pulse { animation: errPulse 1.1s ease-out 2; }
+      @keyframes errPulse {
+        0% { box-shadow: 0 0 0 0 rgba(210,31,31,.7); }
+        100% { box-shadow: 0 0 0 14px rgba(210,31,31,0); }
+      }
       #aiSuppLayer .note a {
         display: inline-block; margin-top: 4px; font-size: 11.5px; color: var(--supp-color, #b45309);
         text-decoration: none; border-bottom: 1px dashed currentColor; cursor: pointer; opacity: .85;
@@ -1077,6 +1089,106 @@ function curvePath(x0, y0, x1, y1) {
   const dx = Math.abs(x0 - x1);
   const k = Math.max(26, Math.min(130, dx * 0.5));
   return `M ${x0} ${y0} C ${x0 - k} ${y0}, ${x1 + k * 0.7} ${y1 - 6}, ${x1} ${y1}`;
+}
+
+/** 正文里的红标（排除附录卡片标题里的那个，以及我们自己弹的说明卡片里的）。 */
+function auditFlagsIn(doc) {
+  if (!doc) return [];
+  return [...doc.querySelectorAll('.err-flag')].filter(
+    (el) => !el.closest('.appendix') && !el.closest('#errCard'),
+  );
+}
+
+/**
+ * 给成稿里的红色感叹号挂上点击：点一下就地在旁边弹出「这里错在哪」的小卡片。
+ * 关掉 AI 批注时红标还在（它烧在 HTML 里），所以这条通道必须独立于批注层。
+ */
+function hookAuditFlags(doc) {
+  const flags = [...doc.querySelectorAll('.err-flag')];
+  flags.forEach((el) => {
+    // 服务端在 title 里写了问题标题，用它认领属于哪一条；认领完就把 title 换掉
+    const title = el.getAttribute('title') || '';
+    const idx = (audit.items || []).findIndex((a) => a.title === title);
+    el.dataset.auditIdx = String(idx >= 0 ? idx : 0);
+    el.style.cursor = 'pointer';
+    el.title = '点一下看这里的问题';
+    el.onclick = (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      showErrCard(doc, el);
+    };
+  });
+  return flags.length;
+}
+
+/** 在红标旁边弹出说明卡片。 */
+function showErrCard(doc, el) {
+  const idx = Number(el.dataset.auditIdx || 0);
+  const item = (audit.items || [])[idx] || null;
+  let card = doc.getElementById('errCard');
+  if (!card) {
+    card = doc.createElement('div');
+    card.id = 'errCard';
+    doc.body.appendChild(card);
+  }
+  card.innerHTML = `
+    <div class="ec-head">
+      <span class="err-flag">!</span>
+      <b>${esc(item?.title || 'AI 审校提示')}</b>
+      <button class="ec-close" title="关闭">✕</button>
+    </div>
+    ${item?.anchor ? `<div class="ec-quote">原文：${esc(item.anchor.slice(0, 90))}</div>` : ''}
+    <div class="ec-body">${esc(item?.detail || '这一处被 AI 审校标记为可能有实质性问题。')}</div>
+    <div class="ec-foot">来自 AI 审校 · 成稿附录里有全部问题清单</div>`;
+  card.querySelector('.ec-close').onclick = () => card.remove();
+
+  // 放在红标右边；右边放不下就放左边；上下夹在页面内
+  const r = el.getBoundingClientRect();
+  const win = doc.defaultView;
+  const cardW = 330;
+  const pageW = doc.documentElement.clientWidth;
+  let left = r.right + win.scrollX + 12;
+  if (left + cardW > win.scrollX + pageW - 12) left = Math.max(win.scrollX + 8, r.left + win.scrollX - cardW - 12);
+  card.style.left = left + 'px';
+  card.style.top = Math.max(win.scrollY + 8, r.top + win.scrollY - 6) + 'px';
+  card.style.width = cardW + 'px';
+}
+
+/** 定位到第 n 处红标：滚动过去 + 闪一下 + 弹说明。 */
+function gotoAuditFlag(n = 0) {
+  const frame = activePreviewFrame();
+  let doc;
+  try {
+    doc = frame?.contentDocument;
+  } catch {
+    doc = null;
+  }
+  const flags = auditFlagsIn(doc);
+  const total = audit.items.length || flags.length;
+  if (!flags.length) {
+    $('#suppHint').textContent = `没找到红标（预览 ${doc ? '已加载' : '还没加载'}）—— 如果成稿是旧版本，点一次「重新排版」重新生成`;
+    return false;
+  }
+  const i = ((n % flags.length) + flags.length) % flags.length;
+  // 优先按问题序号找，找不到再按顺序取
+  const el = flags.find((f) => Number(f.dataset.auditIdx) === i) || flags[i];
+  // 瞬时定位 + 兜底直接设滚动位置（有些环境下 scrollIntoView 不会真的滚过去）
+  el.scrollIntoView({ block: 'center' });
+  try {
+    const win = doc.defaultView;
+    const y = el.getBoundingClientRect().top + win.scrollY - win.innerHeight / 2;
+    win.scrollTo(0, Math.max(0, y));
+  } catch {}
+  setTimeout(() => {
+    el.classList.remove('pulse');
+    void el.offsetWidth;
+    el.classList.add('pulse');
+    showErrCard(doc, el);
+  }, 260);
+  $('#suppHint').textContent = `已定位到第 ${i + 1}/${total} 处审校问题，红色说明就在感叹号旁边（再点一次红字看下一处）`;
+  audit.cursor = i + 1;
+  renderAuditBadge();
+  return true;
 }
 
 /** 按「去公式后的纯文本」在成稿里找包含某段话的区块（AI 审校的红标用它定位）。 */
@@ -1525,10 +1637,24 @@ function enterFullscreenPreview() {
   fsAiShow(false);
   $('#fsFrame').addEventListener(
     'load',
-    () => setTimeout(() => { applyLookToDoc($('#fsFrame').contentDocument); applyFsChrome(); drawMarginNotes(); }, 250),
+    () => setTimeout(() => {
+      const d = $('#fsFrame').contentDocument;
+      applyLookToDoc(d);
+      applyFsChrome();
+      try {
+        hookAuditFlags(d);
+      } catch {}
+      drawMarginNotes();
+    }, 250),
     { once: true },
   );
-  setTimeout(() => { applyFsChrome(); drawMarginNotes(); }, 700);
+  setTimeout(() => {
+    try {
+      hookAuditFlags($('#fsFrame').contentDocument);
+    } catch {}
+    applyFsChrome();
+    drawMarginNotes();
+  }, 700);
 }
 
 function exitFullscreenPreview() {
@@ -1999,7 +2125,11 @@ function bind() {
 
   // 导出 PDF / 全屏预览 / 全屏里的 AI
   $('#btnExportPdf').onclick = exportPdf;
-  $('#btnAudit').onclick = runAudit;
+  $('#auditBadge').onclick = () => {
+    if (!gotoAuditFlag((audit.cursor || 1) - 1)) {
+      toast('没找到红标：如果这份成稿是旧版本，先点「重新排版」', 'err');
+    }
+  };
   $('#btnPreviewFs').onclick = enterFullscreenPreview;
   $('#fsClose').onclick = exitFullscreenPreview;
   $('#fsAiToggle').onclick = () => fsAiShow($('#fsAi').classList.contains('hidden'));
@@ -2027,7 +2157,15 @@ function bind() {
   $('#btnSuppRegen').onclick = () => { if (confirm('重新生成会覆盖现在的补充内容，继续？')) runSupplements(true); };
   $('#linkSupp').onclick = () => activateTab('supp');
   $('#chkSuppOn').onchange = (e) => { supp.on = e.target.checked; drawMarginNotes(); };
-  $('#previewFrame').addEventListener('load', () => setTimeout(drawMarginNotes, 300));
+  $('#previewFrame').addEventListener('load', () =>
+    setTimeout(() => {
+      // 红标是烧在成稿里的，和批注开关无关，每次加载都要重新挂点击
+      try {
+        hookAuditFlags($('#previewFrame').contentDocument);
+      } catch {}
+      drawMarginNotes();
+    }, 300),
+  );
   // 面板默认常驻（除非用户上次主动收起）
   aiToggle(localStorage.getItem('cns-ai-open') !== '0');
   $$('#tabs .tab, #tabsSub .tab').forEach((t) => t.onclick = () => {
@@ -2103,6 +2241,9 @@ async function install(ids) {
     searchSetMode(params.get('mode') === 'ai' ? 'ai' : 'exact');
     runSearch(q0);
   }
+  // 支持 /?audit=1 打开任务后直接跳到第一处审校红标（也便于截图核对）
+  // 用「数据加载完成后再跳」而不是轮询：轮询在无头浏览器的虚拟时间下会先跑完
+  if (params.get('audit') === '1') pendingAuditJump = true;
   // 支持 /?fs=1 打开任务后直接进全屏预览；&fsai=1 顺带把 AI 面板拉出来
   if (params.get('fs') === '1') {
     const tryFs = (n = 0) => {
