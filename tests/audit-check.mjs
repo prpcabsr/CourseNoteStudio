@@ -5,7 +5,14 @@ import path from 'node:path';
 import { applyAuditFixes } from '../app/lib/render.mjs';
 import { locateInMarkdown } from '../app/lib/audit.mjs';
 
-const id = process.argv[2] || 'pmv3juxzob133';
+const id = process.argv[2] || pickProject() || 'no-project';
+
+function pickProject() {
+  const dir = path.join(process.cwd(), 'data', 'projects');
+  if (!fs.existsSync(dir)) return null;
+  const c = fs.readdirSync(dir).filter((d) => fs.existsSync(path.join(dir, d, 'work', 'doc.json'))).sort();
+  return c.pop() || null;
+}
 const htmlFile = path.join(process.cwd(), 'data', 'projects', id, 'out', 'notes.html');
 const auditFile = path.join(process.cwd(), 'data', 'projects', id, 'work', 'audit.json');
 

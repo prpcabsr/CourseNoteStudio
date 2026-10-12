@@ -8,7 +8,7 @@ import { readBoardImage, vlmAssets, stopLocalServer } from './vision.mjs';
 import { synthesize, fmtTime } from './fusion.mjs';
 import { auditNotes } from './audit.mjs';
 import { grabFrame, run, ffmpeg } from './proc.mjs';
-import { buildHtml, buildMarkdown, htmlToPdf, ensureKatexAssets, ASSET_DIR } from './render.mjs';
+import { buildHtml, buildMarkdown, htmlToPdf, ensureKatexAssets, titleMath, ASSET_DIR } from './render.mjs';
 import { loadConfig } from './config.mjs';
 import { projectPaths, loadState, patchState, readJson, writeJson } from './project.mjs';
 import { humanSize, FONTS_DIR } from './paths.mjs';
@@ -218,14 +218,52 @@ export async function runPipeline({ projectId, onEvent = () => {}, force = {} })
     const gens = new Map(vis.generations.map((g) => [g.index, g]));
     const total = vis.points.length;
     let doneCount = snapshots.length;
+    // 抽帧（ffmpeg，吃 CPU）和识别板书（视觉模型，吃 GPU）用的是不同资源，
+    // 串着做会互相干等。这里提前把后面几屏的图抽好，让两边流水线跑起来。
+    const frameName = (p) => `board_${String(p.index).padStart(4, '0')}_${String(Math.floor(p.t)).padStart(6, '0')}.jpg`;
+    const framePath = (p) => path.join(P.figures, frameName(p));
+    const PREFETCH = 4;
+    let prefetching = 0;
+    const prefetchWaiters = [];
+    const pumpPrefetch = () => {
+      while (prefetching < 2 && prefetchWaiters.length) {
+        const job = prefetchWaiters.shift();
+        prefetching++;
+        Promise.resolve()
+          .then(job)
+          .catch(() => {})
+          .finally(() => {
+            prefetching--;
+            pumpPrefetch();
+          });
+      }
+    };
+    const prefetchFrame = (p) => {
+      const img = framePath(p);
+      if (!p || fs.existsSync(img) || (p.inkTotal ?? 0) < 0.0015) return Promise.resolve();
+      return new Promise((resolve) => {
+        prefetchWaiters.push(async () => {
+          if (!fs.existsSync(img)) {
+            try {
+              await grabFrame(mediaFile, p.t, img, { crop: p.roi || undefined, width: cfg.capture.imageWidth });
+            } catch {}
+          }
+          resolve();
+        });
+        pumpPrefetch();
+      });
+    };
+    const todo = vis.points.filter((p) => !doneTimes.has(p.t));
+    for (let i = 0; i < Math.min(PREFETCH, todo.length); i++) prefetchFrame(todo[i]);
+    const todoIndex = new Map(todo.map((p, i) => [p.t, i]));
     for (const p of vis.points) {
       if (signal.aborted) throw new Error('已取消');
       if (doneTimes.has(p.t)) {
         emit({ type: 'read-progress', percent: Math.round((doneCount / total) * 100), done: doneCount, total });
         continue;
       }
-      const name = `board_${String(p.index).padStart(4, '0')}_${String(Math.floor(p.t)).padStart(6, '0')}.jpg`;
-      const img = path.join(P.figures, name);
+      const name = frameName(p);
+      const img = framePath(p);
       try {
         const g = gens.get(p.generation) || {};
         // 空白画面（刚擦干净、或老师占满画面）不必浪费视觉模型
@@ -237,6 +275,11 @@ export async function runPipeline({ projectId, onEvent = () => {}, force = {} })
         }
         if (!fs.existsSync(img)) {
           await grabFrame(mediaFile, p.t, img, { crop: p.roi || undefined, width: cfg.capture.imageWidth });
+        }
+        // 这一屏马上要识别了，顺手把再后面一屏的图预约上，保持流水线不断
+        {
+          const i = todoIndex.get(p.t);
+          if (i !== undefined && todo[i + PREFETCH]) prefetchFrame(todo[i + PREFETCH]);
         }
         let ocr = { scene: 'unknown', title: '', text: '', layout: '', confidence: 'low', skipped: true };
         const vlm = vlmAssets(cfg.vlm.modelId);
@@ -322,11 +365,9 @@ export async function runPipeline({ projectId, onEvent = () => {}, force = {} })
       concurrency: cfg.llm.concurrency,
       bustCache: !!force.think,
     });
-    // 章节标题在界面上是纯文本显示的，去掉里面的 $ 定界符（正文里的公式不受影响，
-    // PDF 的标题会由同样的文本生成，读起来一样自然）
-    for (const s of doc.sections || []) {
-      if (s.title) s.title = String(s.title).replace(/\$/g, '');
-    }
+    // 章节标题里可能带公式（例如「洛朗展开：以 $f(z)=\dfrac{z-1}{z-2}$ 为例」）。
+    // 以前是把 $ 直接删掉，结果标题里剩下 \dfrac{...} 这种源码，很难看。
+    // 现在保留 $，交给渲染端按数学排版；界面上用的是同一条 HTML。
     writeJson(path.join(P.work, 'doc.json'), doc);
     markStage('think', 'done', { sections: doc.sections.length });
 
@@ -402,6 +443,21 @@ export async function renderProject({ projectId, onEvent = () => {}, docIn, medi
   const state = stateIn || loadState(projectId) || { id: projectId, input: '' };
   const doc = docIn || readJson(path.join(P.work, 'doc.json'));
   if (!doc || !doc.sections) throw new Error('还没有整理好的笔记内容，请先运行一次完整流程');
+  // 修复章节标题里的公式：早期版本把标题里的 $ 直接删了，会剩下 \dfrac{...} 这种源码。
+  // 这一步是幂等的（已经有 $ 的标题不会被再包一层），所以每次排版都可以放心跑。
+  let titleFixed = false;
+  for (const s of doc.sections) {
+    const fixed = titleMath(s.title);
+    if (fixed !== s.title) {
+      s.title = fixed;
+      titleFixed = true;
+    }
+  }
+  if (titleFixed && !docIn) {
+    try {
+      writeJson(path.join(P.work, 'doc.json'), doc);
+    } catch {}
+  };
   const media = mediaInfoIn || readJson(path.join(P.work, 'media.json'))?.info || {};
   const transcript = transcriptIn || readJson(path.join(P.work, 'transcript.json')) || { segments: [] };
 

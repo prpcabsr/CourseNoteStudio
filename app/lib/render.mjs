@@ -7,7 +7,18 @@ import katex from 'katex';
 import { run } from './proc.mjs';
 import { findEdge, ROOT, DATA_DIR } from './paths.mjs';
 import { fmtTime } from './fusion.mjs';
-import { repairLatex } from './latex.mjs';
+import { repairLatex, wrapBareLatex } from './latex.mjs';
+
+/**
+ * 章节标题的公式修复。
+ * 早期版本会把标题里的 $ 直接删掉（为了让界面显示纯文本），
+ * 结果标题剩下 `f(z)=\dfrac{1}{(z-1)(z-2)}` 这种源码。
+ * 这里把裸露的 LaTeX 重新包回 $...$，标题就能正常排版了。
+ */
+export function titleMath(title) {
+  const t = String(title || '');
+  return /\\[a-zA-Z]+|[=^_]\{|\^|_/.test(t) ? wrapBareLatex(t) : t;
+}
 
 const KATEX_SRC = path.join(ROOT, 'node_modules', 'katex', 'dist');
 export const ASSET_DIR = path.join(DATA_DIR, 'assets', 'katex');
@@ -395,7 +406,7 @@ export function buildHtml(
   if (named.length) {
     parts.push('<section class="toc"><h2>目录</h2><ol>');
     for (const s of named) {
-      parts.push(`<li><span class="t">${escapeHtml(s.title)}</span> <span class="p">（${fmtTime(s.start)}）</span></li>`);
+      parts.push(`<li><span class="t">${textToHtml(s.title, { inlineMath: true })}</span> <span class="p">（${fmtTime(s.start)}）</span></li>`);
     }
     parts.push('</ol></section>');
   }
@@ -407,7 +418,7 @@ export function buildHtml(
     body = applyAuditFixes(body, (doc.audit || []).filter((a) => a.section === s.index));
     if (!body && !s.images.length) continue;
     parts.push('<section class="section">');
-    parts.push(`<h2 class="section-head"><span class="sec-no">${String(s.index + 1).padStart(2, '0')}</span><span>${escapeHtml(s.title)}</span><span class="sec-time">${fmtTime(s.start)} – ${fmtTime(s.end)}</span></h2>`);
+    parts.push(`<h2 class="section-head"><span class="sec-no">${String(s.index + 1).padStart(2, '0')}</span><span>${textToHtml(s.title, { inlineMath: true })}</span><span class="sec-time">${fmtTime(s.start)} – ${fmtTime(s.end)}</span></h2>`);
     parts.push(mdToHtml(body));
     if (includeBoardImages && s.images.length) {
       parts.push('<div class="fig-label">本节板书原图</div>');

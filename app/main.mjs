@@ -23,12 +23,13 @@ try {
  */
 async function loadCore() {
   try {
-    const [server, pipeline, project] = await Promise.all([
+    const [server, pipeline, project, ingest] = await Promise.all([
       import('./lib/server.mjs'),
       import('./lib/pipeline.mjs'),
       import('./lib/project.mjs'),
+      import('./lib/ingest.mjs'),
     ]);
-    return { ...server, ...pipeline, ...project };
+    return { ...server, ...pipeline, ...project, ...ingest };
   } catch (e) {
     if (e && e.code === 'ERR_MODULE_NOT_FOUND') {
       console.error('');
@@ -186,7 +187,9 @@ async function cmdServe() {
 
 async function cmdRun() {
   const core = await loadCore();
-  const input = rest.find((a) => !a.startsWith('--'));
+  const raw = rest.find((a) => !a.startsWith('--'));
+  // 允许直接粘分享文案：【标题】https://...&vd_source=...
+  const input = raw ? core.normalizeVideoInput(raw) : '';
   if (!input) {
     console.error('用法：node app/main.mjs run <视频链接或文件路径>');
     process.exit(1);

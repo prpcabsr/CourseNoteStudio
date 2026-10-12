@@ -15,8 +15,8 @@ import { generateSupplements, loadSupplements } from './supplement.mjs';
 import { auditNotes, loadAudit } from './audit.mjs';
 import { generateSummary, listSummaries, loadSummary, listPickable } from './summary.mjs';
 import { asrAssets } from './asr.mjs';
-import { isUrl } from './ingest.mjs';
-import { mdToHtml, lookCss } from './render.mjs';
+import { isUrl, normalizeVideoInput } from './ingest.mjs';
+import { mdToHtml, lookCss, textToHtml, titleMath } from './render.mjs';
 import { repairLatex } from './latex.mjs';
 import fsx from 'node:fs';
 
@@ -83,6 +83,80 @@ function safeJoin(root, rel) {
   const p = path.normalize(path.join(root, rel));
   if (!p.startsWith(path.normalize(root))) return null;
   return p;
+}
+
+/**
+ * 任务队列。
+ *
+ * 为什么需要：一节课的流水线里，「识别板书」用的是**单实例视觉模型**（-np 1），
+ * 「抽帧」吃 CPU，「下载」吃带宽。如果用户一次点开五六个视频一起跑，
+ * 它们会互相抢这三样资源，结果是**每个都变得很慢**，而且看起来像卡住了。
+ * 所以这里限制同时运行的任务数（默认 2：一个在识别、一个在下载/转写，互不打架），
+ * 其余排队，并在界面上显示排队位置。
+ */
+const taskQueue = [];
+let activeTasks = 0;
+function queueState() {
+  const cfg = loadConfig();
+  const max = Math.max(1, Number(cfg.run?.maxConcurrentTasks) || 2);
+  return {
+    max,
+    active: activeTasks,
+    waiting: taskQueue.map((t) => t.projectId),
+    positionOf: (pid) => {
+      const i = taskQueue.findIndex((t) => t.projectId === pid);
+      return i < 0 ? 0 : i + 1;
+    },
+  };
+}
+
+function pumpQueue() {
+  const { max } = queueState();
+  while (activeTasks < max && taskQueue.length) {
+    const job = taskQueue.shift();
+    activeTasks++;
+    broadcast({ projectId: job.projectId, type: 'log', message: '▶ 开始处理' });
+    runPipeline({ projectId: job.projectId, onEvent: broadcast, force: job.force || {} })
+      .catch(() => {})
+      .finally(() => {
+        activeTasks--;
+        const rest = queueState();
+        // 通知还在排队的任务：往前挪了
+        rest.waiting.forEach((pid, i) => {
+          broadcast({ projectId: pid, type: 'queued', position: i + 1, active: rest.active, max: rest.max });
+        });
+        pumpQueue();
+      });
+  }
+}
+
+function startQueued(projectId, force = {}) {
+  const st = queueState();
+  if (st.active < st.max && !taskQueue.length) {
+    activeTasks++;
+    broadcast({ projectId, type: 'log', message: '▶ 开始处理' });
+    runPipeline({ projectId, onEvent: broadcast, force })
+      .catch(() => {})
+      .finally(() => {
+        activeTasks--;
+        const rest = queueState();
+        rest.waiting.forEach((pid, i) => {
+          broadcast({ projectId: pid, type: 'queued', position: i + 1, active: rest.active, max: rest.max });
+        });
+        pumpQueue();
+      });
+    return;
+  }
+  taskQueue.push({ projectId, force });
+  const pos = queueState().positionOf(projectId);
+  broadcast({
+    projectId,
+    type: 'queued',
+    position: pos,
+    active: st.active,
+    max: st.max,
+    message: `前面还有 ${pos - 1} 个任务在跑，已排队（同时最多 ${st.max} 个）。这样每个任务反而更快跑完。`,
+  });
 }
 
 function serveStatic(res, abs) {
@@ -277,6 +351,7 @@ export function startServer({ port = 7788, host = '127.0.0.1', open = true, auto
           closing: life.closing,
           timerAlive: !!life.timer,
           clients: [...clientInfo.values()],
+          queue: { active: activeTasks, waiting: taskQueue.map((t) => t.projectId), max: queueState().max },
         });
       }
       if (p === '/api/catalog') return send(res, 200, catalogStatus());
@@ -485,8 +560,8 @@ export function startServer({ port = 7788, host = '127.0.0.1', open = true, auto
         if (rest === '/run' && req.method === 'POST') {
           if (isRunning(id)) return send(res, 409, { error: '这个任务正在运行' });
           const body = await readBody(req);
-          runPipeline({ projectId: id, onEvent: broadcast, force: body.force || {} }).catch(() => {});
-          return send(res, 200, { ok: true, started: true });
+          startQueued(id, body.force || {});
+          return send(res, 200, { ok: true, started: true, queued: queueState().positionOf(id) });
         }
         if (rest === '/cancel' && req.method === 'POST') {
           const ok = cancelProject(id);
@@ -596,9 +671,12 @@ export function startServer({ port = 7788, host = '127.0.0.1', open = true, auto
           const out = (doc.sections || [])
             .map((s) => ({
               index: s.index,
-              // 标题里也可能带 $...$（例如「…简化为 $φ(b)/ψ'(b)$」）。
-              // 界面上的标题是纯文本，去掉定界符即可，免得把 $ 显示出来。
-              title: String(s.title || '').replace(/\$/g, ''),
+              // 标题里可能带 $...$（例如「洛朗展开：以 $f(z)=\dfrac{z-1}{z-2}$ 为例」）。
+              // title 保留原文（搜索/复制用），titleText 去掉定界符，titleHtml 是排好版的
+              // （界面显示用 titleHtml，否则会把 \dfrac{...} 这种源码露出来）。
+              title: String(s.title || ''),
+              titleText: String(s.title || '').replace(/\$/g, ''),
+              titleHtml: textToHtml(titleMath(s.title), { inlineMath: true }),
               start: s.start,
               end: s.end,
               html: mdToHtml(String(s.markdown || '').replace(/^#{1,3}\s*.+$/m, '').trim()),

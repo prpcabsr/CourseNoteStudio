@@ -356,6 +356,20 @@ async function openProject(id, { setHash = true } = {}) {
   state.sections = [];
   state.logs = [];
   state.tab = 'board';
+  // 切换任务时必须把「上一个任务」的东西全部清掉，否则新任务会显示别人的章节数、
+  // 补充讲解、审校红字和成稿预览（用户反馈过这个）
+  supp.items = [];
+  audit.items = [];
+  audit.cursor = 1;
+  supp.on = true;
+  $('#chkSuppOn').checked = true;
+  $('#previewFrame').src = 'about:blank';
+  $('#previewFrame').classList.add('hidden');
+  $('#fsFrame').src = 'about:blank';
+  $('#previewHint').textContent = '成稿生成后可在此预览。';
+  renderSupplements();
+  renderAuditBadge();
+  renderNotes();
   switchView('project');
   if (setHash && location.hash !== `#/p/${id}`) location.hash = `#/p/${id}`;
   renderProjectHead();
@@ -758,6 +772,33 @@ async function openSearchHit(hit) {
   }
   activateTab('notes');
   $('#noteList')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/** 前端版的「从分享文案里抠链接」，规则和服务端保持一致（服务端才是权威）。 */
+function normalizeInput(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  if (/^[a-zA-Z]:[\\/]/.test(text)) return text;
+  let url = (text.match(/https?:\/\/[^\s"'<>「」【】（）()《》，,、]+/i) || [])[0] || '';
+  if (!url) {
+    const bv = text.match(/\b(BV[0-9A-Za-z]{8,12})\b/);
+    const av = text.match(/\b(av\d{5,12})\b/i);
+    if (bv) url = `https://www.bilibili.com/video/${bv[1]}`;
+    else if (av) url = `https://www.bilibili.com/video/${av[1]}`;
+    else return text;
+  }
+  const TRACKING = new Set([
+    'vd_source', 'spm_id_from', 'from_source', 'from_spmid', 'share_source', 'share_medium',
+    'share_plat', 'share_tag', 'share_times', 'bbid', 'ts', 'timestamp', 'unique_k', 'seid',
+    'buvid', 'up_id', 'si', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_term',
+    'utm_content', 'fbclid', 'gclid', 'feature',
+  ]);
+  try {
+    const u = new URL(url);
+    for (const k of [...u.searchParams.keys()]) if (TRACKING.has(k.toLowerCase())) u.searchParams.delete(k);
+    url = u.toString().replace(/\?$/, '');
+  } catch {}
+  return url;
 }
 
 /* ─────────────── 整章做题技巧 ─────────────── */
@@ -1702,7 +1743,7 @@ async function renderNotes() {
     if (data.objectives?.length) head.push(`<div class="note-card"><h3>学习目标</h3><div class="note-body"><ul>${data.objectives.map((o) => `<li>${o}</li>`).join('')}</ul></div></div>`);
     const body = sections.map((s) => `
       <div class="note-card">
-        <h3><span class="n">${String((s.index ?? 0) + 1).padStart(2, '0')}</span>${esc(s.title)}</h3>
+        <h3><span class="n">${String((s.index ?? 0) + 1).padStart(2, '0')}</span><span class="note-title">${s.titleHtml || esc(s.titleText || s.title)}</span></h3>
         <div class="tiny" style="margin-top:2px">${fmtTime(s.start)} – ${fmtTime(s.end)}</div>
         <div class="note-body">${s.html}</div>
         ${(s.images || []).length ? `<div class="note-figs">${s.images.map((u) => `<img src="${u}" loading="lazy" data-full="${u}">`).join('')}</div>` : ''}
@@ -1908,6 +1949,11 @@ function applyEvent(ev, replay = false) {
       break;
     }
     case 'log': addLog(ev.message, ev.level || ''); if (ev.level === 'error') toast(ev.message, 'err'); break;
+  case 'queued':
+    // 排队中：明确告诉用户在等什么，避免看起来像卡住
+    setBar(0, `排队中（第 ${ev.position} 位，同时最多 ${ev.max} 个任务）`);
+    addLog(`⏳ ${ev.message || `已排队（第 ${ev.position} 位）`}`, 'warn');
+    break;
     case 'download-progress':
       setBar(within('prepare', ev.percent), `下载视频 ${ev.percent}%  ${ev.size || ''}  ${ev.speed || ''}`);
       break;
@@ -2042,8 +2088,10 @@ function hideServerDown() {
 
 /* ─────────────── 新建任务 ─────────────── */
 async function startNewProject() {
-  const input = $('#inputUrl').value.trim();
+  // 提交前再清理一遍（用户可能没触发 paste/blur，例如用鼠标中键粘贴）
+  const input = normalizeInput($('#inputUrl').value.trim());
   if (!input) { toast('请先粘贴视频链接或本地文件路径', 'warn'); $('#inputUrl').focus(); return; }
+  $('#inputUrl').value = input;
   const body = {
     input,
     title: $('#inputCourse').value.trim(),
@@ -2141,6 +2189,20 @@ function bind() {
   $('#btnNew').onclick = () => goHome();
   $('#btnStart').onclick = startNewProject;
   $('#inputUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter') startNewProject(); });
+  // 分享文案（【标题】https://...&vd_source=...）粘进来时自动只留链接，
+  // 不然用户每次都要手动删中文；失焦时也顺手清一遍
+  const cleanInput = () => {
+    const el = $('#inputUrl');
+    const before = el.value.trim();
+    const after = normalizeInput(before);
+    if (after && after !== before) {
+      el.value = after;
+      $('#pasteHint').classList.remove('hidden');
+      setTimeout(() => $('#pasteHint').classList.add('hidden'), 2600);
+    }
+  };
+  $('#inputUrl').addEventListener('paste', () => setTimeout(cleanInput, 0));
+  $('#inputUrl').addEventListener('blur', cleanInput);
   $('#btnSettings').onclick = openDrawer;
   $('#btnCloseDrawer').onclick = closeDrawer;
   $('#drawerMask').onclick = closeDrawer;

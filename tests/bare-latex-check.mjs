@@ -5,9 +5,26 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const id = process.argv[2] || fs.readdirSync(path.join(ROOT, 'data', 'projects')).sort().pop();
-const dir = path.join(ROOT, 'data', 'projects', id, 'out');
-const doc = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'projects', id, 'work', 'doc.json'), 'utf8'));
+const PROJ_DIR = path.join(ROOT, 'data', 'projects');
+
+/** 没有指定 id 时，自动挑一个「已经有成稿」的任务；一个都没有就直接跳过。 */
+function pickProject() {
+  if (process.argv[2]) return process.argv[2];
+  if (!fs.existsSync(PROJ_DIR)) return null;
+  const candidates = fs
+    .readdirSync(PROJ_DIR)
+    .filter((d) => fs.existsSync(path.join(PROJ_DIR, d, 'work', 'doc.json')))
+    .sort();
+  return candidates.pop() || null;
+}
+const id = pickProject();
+if (!id) {
+  console.log('· 还没有任何已生成的成稿，跳过（先跑一个任务再来）');
+  process.exit(0);
+}
+const dir = path.join(PROJ_DIR, id, 'out');
+const doc = JSON.parse(fs.readFileSync(path.join(PROJ_DIR, id, 'work', 'doc.json'), 'utf8'));
+console.log(`检查任务：${id}`);
 
 /** 把 Markdown 里的数学片段挖掉，再看剩下的文字里有没有 LaTeX 痕迹 */
 function stripMath(md) {

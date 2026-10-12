@@ -8,6 +8,50 @@ export function isUrl(s) {
   return /^https?:\/\//i.test((s || '').trim());
 }
 
+/**
+ * 从「分享文案」里抠出真正的视频地址。
+ *
+ * 各平台的分享按钮复制出来的通常是一整句，例如：
+ *   【数学物理方法（武汉大学）周国全老师 1080p高清修复（全集）】https://www.bilibili.com/video/BV1Kj411v7jx?p=24&vd_source=713f...
+ * 直接粘进来不能下载，用户还得手动删中文，很烦。
+ *
+ * 这里做三件事：
+ *   1. 找出第一个 http(s) 链接（自动丢掉【】、《》与说明文字）；
+ *   2. 只给了 BV 号 / av 号时也能拼出链接；
+ *   3. 去掉 vd_source、spm_id_from 这类**分享跟踪参数**，
+ *      保留 p（第几集）、list/index（播放列表）、t（时间点）这些有意义的参数。
+ */
+const TRACKING_PARAMS = new Set([
+  'vd_source', 'spm_id_from', 'from_source', 'from_spmid', 'share_source', 'share_medium',
+  'share_plat', 'share_tag', 'share_times', 'bbid', 'ts', 'timestamp', 'unique_k', 'seid',
+  'buvid', 'up_id', 'si', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_term',
+  'utm_content', 'fbclid', 'gclid', 'feature',
+]);
+
+export function normalizeVideoInput(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  // 本地文件路径（盘符 / UNC / 拖拽进来的）原样返回
+  if (/^[a-zA-Z]:[\\/]/.test(text) || /^\\\\/.test(text)) return text;
+
+  let url = (text.match(/https?:\/\/[^\s"'<>「」【】（）()《》，,、]+/i) || [])[0] || '';
+  if (!url) {
+    const bv = text.match(/\b(BV[0-9A-Za-z]{8,12})\b/);
+    const av = text.match(/\b(av\d{5,12})\b/i);
+    if (bv) url = `https://www.bilibili.com/video/${bv[1]}`;
+    else if (av) url = `https://www.bilibili.com/video/${av[1]}`;
+    else return text; // 既没有链接也不是路径，交给后面按文件处理
+  }
+  try {
+    const u = new URL(url);
+    for (const k of [...u.searchParams.keys()]) {
+      if (TRACKING_PARAMS.has(k.toLowerCase())) u.searchParams.delete(k);
+    }
+    url = u.toString().replace(/\?$/, '');
+  } catch {}
+  return url;
+}
+
 /** 探测媒体信息。 */
 export async function probeMedia(file) {
   const info = await ffprobeJson(file);

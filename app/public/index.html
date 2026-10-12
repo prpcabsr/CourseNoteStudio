@@ -83,9 +83,10 @@
 
           <div class="input-row">
             <input id="inputUrl" class="input big" type="text" spellcheck="false"
-                   placeholder="粘贴视频链接（B 站 / YouTube / 慕课…），或本地视频文件的完整路径">
+                   placeholder="直接粘贴 B 站分享文案也行（【标题】https://… 会自动只留链接），或本地视频文件完整路径">
             <button class="btn primary big" id="btnStart">开始生成</button>
           </div>
+          <div class="tiny hidden clip-hint" id="pasteHint">已自动去掉多余文字与分享跟踪参数，只保留视频链接</div>
           <div class="input-extra">
             <label class="field"><span>课程名称（可选）</span>
               <input id="inputCourse" class="input" type="text" placeholder="高等数学 · 第 12 讲">

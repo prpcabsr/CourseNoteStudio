@@ -563,6 +563,10 @@ a { color: var(--accent); text-decoration: none; }
   font-size: 12px; color: var(--text-3); line-height: 1.7;
 }
 
+/* 粘贴分享文案后的小提示 */
+.clip-hint { color: var(--ok, #1a7f37); margin-top: 6px; }
+.clip-hint::before { content: '✓ '; }
+
 /* 整章做题技巧入口：放在任务列表上方（和「选任务」在一起，因为常要跨任务多选） */
 .sum-entry { margin: 10px 0 8px; justify-content: center; }
 .sum-entry::before { content: none; }

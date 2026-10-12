@@ -39,6 +39,10 @@ export const DEFAULTS = {
     autoCrop: true,
     imageWidth: 1600,
   },
+  // 同时运行几个任务。视觉模型只有一个实例，一次跑太多会互相抢资源、反而更慢。
+  run: {
+    maxConcurrentTasks: 2,
+  },
   // AI 审校的严格程度。
   //   strict（默认）：只改「确定的数学错误」，边界情况一律不动 —— 误改比漏改危险。
   //   loose：连「推断不严谨、条件不足」也标出来并改正（例如由 |z1z2|<1 就断定恰有一根在单位圆内）。

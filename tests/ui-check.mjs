@@ -8,6 +8,7 @@ const html = fs.readFileSync(path.join(ROOT, 'app', 'public', 'index.html'), 'ut
 const js = fs.readFileSync(path.join(ROOT, 'app', 'public', 'app.js'), 'utf8');
 const css = fs.readFileSync(path.join(ROOT, 'app', 'public', 'style.css'), 'utf8');
 const server = fs.readFileSync(path.join(ROOT, 'app', 'lib', 'server.mjs'), 'utf8');
+const pipeline = fs.readFileSync(path.join(ROOT, 'app', 'lib', 'pipeline.mjs'), 'utf8');
 
 const checks = [
   ['导出 PDF 按钮', html.includes('id="btnExportPdf"')],
@@ -51,6 +52,11 @@ const checks = [
   ['整章做题技巧入口在任务列表上方', html.indexOf('id="btnSummary"') > 0 && html.indexOf('id="btnSummary"') < html.indexOf('id="projList"')],
   ['整章做题技巧支持跨任务多选', js.includes('sumPickData') && js.includes('/api/summary/pickable')],
   ['总结落盘在 data/summaries（用户数据）', server.includes("summaries") || js.includes('/api/summary')],
+  ['切换任务会清空上一个任务的批注与审校', js.includes('supp.items = []') && js.includes('audit.items = []')],
+  ['分享文案自动提取链接', js.includes('function normalizeInput') && server.includes('normalizeVideoInput')],
+  ['章节标题里的公式会被修好', server.includes('titleMath') && js.includes('titleHtml')],
+  ['任务队列限制并发（避免互相拖慢）', server.includes('startQueued') && server.includes('maxConcurrentTasks')],
+  ['板书记别做了抽帧流水线（ffmpeg 与视觉模型并行）', pipeline.includes('prefetchFrame')],
 ];
 
 let bad = 0;
