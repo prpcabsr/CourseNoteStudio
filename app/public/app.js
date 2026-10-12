@@ -801,6 +801,73 @@ function normalizeInput(raw) {
   return url;
 }
 
+/* ─────────────── 视频对照模式 ─────────────── */
+/**
+ * 把课程链接变成「只有视频」的播放器地址。
+ * B 站用官方嵌入播放器（player.bilibili.com），它天然就只有画面和播放控件，
+ * 不会带 UP 主信息、推荐位这些杂七杂八的东西 —— 比截取网页可靠得多。
+ * YouTube 同理用 /embed/。
+ */
+function embedUrlOf(raw) {
+  const url = String(raw || '');
+  if (!url) return '';
+  const bv = url.match(/bilibili\.com\/video\/(BV[0-9A-Za-z]+)/i);
+  if (bv) {
+    let p = '1';
+    try {
+      p = new URL(url).searchParams.get('p') || '1';
+    } catch {}
+    return `https://player.bilibili.com/player.html?bvid=${bv[1]}&p=${p}&autoplay=0&high_quality=1&danmaku=0`;
+  }
+  if (/b23\.tv\//i.test(url)) return ''; // 短链要展开才能拿到 BV 号，交给「在网页打开」
+  const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{6,})/i);
+  if (yt) {
+    let t = '';
+    try {
+      t = new URL(url).searchParams.get('t') || '';
+    } catch {}
+    const sec = t ? `&start=${String(t).replace(/[^\d]/g, '')}` : '';
+    return `https://www.youtube.com/embed/${yt[1]}?rel=0${sec}`;
+  }
+  return '';
+}
+
+function currentVideoUrl() {
+  return state.current?.url || state.current?.input || state.current?.source?.url || '';
+}
+
+async function toggleVideoMode(on) {
+  const pane = document.querySelector('.pane[data-pane="preview"]');
+  const box = $('#videoMode');
+  if (!pane || !box) return;
+  if (!on) {
+    box.classList.add('hidden');
+    pane.classList.remove('video-on');
+    $('#vmIframe').src = 'about:blank';
+    document.body.classList.remove('video-mode-on');
+    return;
+  }
+  const src = state.current?.url || (await api.get('/api/projects/' + state.current.id).then((d) => d.url || d.input).catch(() => ''));
+  const embed = embedUrlOf(src);
+  if (!embed) {
+    toast('这个链接没法内嵌播放，已改为在新窗口打开', 'warn');
+    if (src) window.open(src, '_blank');
+    return;
+  }
+  $('#vmIframe').src = embed;
+  $('#vmTitle').textContent = state.current?.title || '视频对照';
+  box.classList.remove('hidden');
+  pane.classList.add('video-on');
+  document.body.classList.add('video-mode-on');
+  // 滚到预览区顶部，让视频和笔记两块都正好在视野里
+  const bar = document.querySelector('.pane[data-pane="preview"] .preview-bar');
+  if (bar) bar.scrollIntoView({ block: 'start' });
+  // 对照看的时候，笔记预览滚到最上面，方便从头对着看
+  try {
+    $('#previewFrame').contentWindow.scrollTo(0, 0);
+  } catch {}
+}
+
 /* ─────────────── 整章做题技巧 ─────────────── */
 let sumPickData = null;
 
@@ -948,18 +1015,27 @@ async function loadSupplements() {
   }
 }
 
-/** 右上角的审校状态：点一下直接跳到正文对应的红标。 */
+/** 审校问题的编号方框：点「1」跳到第 1 处，点「2」跳到第 2 处…… */
 function renderAuditBadge() {
-  const el = $('#auditBadge');
-  if (!el) return;
+  const group = $('#auditGroup');
+  const box = $('#auditChips');
+  if (!group || !box) return;
   const n = audit.items.length;
-  el.classList.toggle('hidden', !n);
+  group.classList.toggle('hidden', !n);
   if (!n) {
-    el.textContent = '';
+    box.innerHTML = '';
     return;
   }
-  const cur = Math.min(audit.cursor || 1, n);
-  el.textContent = `AI 审校发现 ${n} 处实质性问题 · 点这里定位第 ${cur} 处 →`;
+  const cur = audit.cursor || 0;
+  box.innerHTML = audit.items
+    .map((it, i) => {
+      const tip = `${i + 1}. ${it.title || '问题'}${it.videoTime ? `（与视频 ${it.videoTime} 不符）` : ''}`;
+      return `<button class="audit-chip${i + 1 === cur ? ' active' : ''}" data-i="${i}" title="${esc(tip)}">${i + 1}</button>`;
+    })
+    .join('');
+  box.querySelectorAll('.audit-chip').forEach((b) => {
+    b.onclick = () => gotoAuditFlag(Number(b.dataset.i));
+  });
 }
 
 function renderSupplements() {
@@ -1361,9 +1437,10 @@ function gotoAuditFlag(n = 0) {
     $('#suppHint').textContent = `没找到红标（预览 ${doc ? '已加载' : '还没加载'}）—— 如果成稿是旧版本，点一次「重新排版」重新生成`;
     return false;
   }
-  const i = ((n % flags.length) + flags.length) % flags.length;
+  const i = ((n % total) + total) % total;
   // 优先按问题序号找，找不到再按顺序取
   const el = flags.find((f) => Number(f.dataset.auditIdx) === i) || flags[i];
+  if (!el) return false;
   // 瞬时定位 + 兜底直接设滚动位置（有些环境下 scrollIntoView 不会真的滚过去）
   el.scrollIntoView({ block: 'center' });
   try {
@@ -1679,6 +1756,18 @@ function setupContextMenu() {
           openMenu(r.left + e.clientX, r.top + e.clientY, info, d);
         });
         d.addEventListener('click', close);
+        // 点到课程链接（成稿封面上的「来源」）：不跳走，而是直接进视频对照模式，
+        // 视频在上面、笔记在下面，随时能退出，不用来回切标签页。
+        d.addEventListener('click', (e) => {
+          const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+          if (!a) return;
+          const href = a.getAttribute('href') || '';
+          if (!/^https?:/i.test(href)) return;
+          if (!embedUrlOf(href)) return; // 不认识的外链按原样打开
+          e.preventDefault();
+          e.stopPropagation();
+          toggleVideoMode(true);
+        });
       } catch {}
     });
   };
@@ -2353,10 +2442,11 @@ function bind() {
     if (e.target === $('#sumMask')) $('#sumMask').classList.add('hidden');
   };
   $('#sumGo').onclick = runSummary;
-  $('#auditBadge').onclick = () => {
-    if (!gotoAuditFlag((audit.cursor || 1) - 1)) {
-      toast('没找到红标：如果这份成稿是旧版本，先点「重新排版」', 'err');
-    }
+  $('#btnVideoMode').onclick = () => toggleVideoMode(true);
+  $('#vmClose').onclick = () => toggleVideoMode(false);
+  $('#vmOpen').onclick = () => {
+    const u = currentVideoUrl();
+    if (u) window.open(u, '_blank');
   };
   $('#btnPreviewFs').onclick = enterFullscreenPreview;
   $('#fsClose').onclick = exitFullscreenPreview;
@@ -2374,10 +2464,11 @@ function bind() {
   };
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
-    // Esc 先关讲解面板，再关 AI 侧边栏，最后才退出全屏
+    // Esc 逐层退出：讲解面板 → AI 侧边栏 → 全屏 → 视频对照
     if (!$('#fsDetail')?.classList.contains('hidden')) return hideFsDetail();
     if (!$('#fsAi')?.classList.contains('hidden')) return fsAiShow(false);
-    if (!$('#fsOverlay').classList.contains('hidden')) exitFullscreenPreview();
+    if (!$('#fsOverlay').classList.contains('hidden')) return exitFullscreenPreview();
+    if (!$('#videoMode')?.classList.contains('hidden')) return toggleVideoMode(false);
   });
 
   // AI 补充
@@ -2470,6 +2561,8 @@ async function install(ids) {
     runSearch(q0);
   }
   // 支持 /?audit=1 打开任务后直接跳到第一处审校红标（也便于截图核对）
+  // 支持 /?video=1 打开任务后直接进视频对照模式（也便于截图核对）
+  if (params.get('video') === '1') setTimeout(() => state.current && toggleVideoMode(true), 1800);
   if (params.get('summary') === '1') setTimeout(openSummary, 1500);
   // 用「数据加载完成后再跳」而不是轮询：轮询在无头浏览器的虚拟时间下会先跑完
   if (params.get('audit') === '1') pendingAuditJump = true;

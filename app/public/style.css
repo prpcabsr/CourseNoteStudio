@@ -595,6 +595,35 @@ a { color: var(--accent); text-decoration: none; }
 .sum-out th { background: var(--bg-soft); }
 .sum-out .katex-display { margin: 10px 0; overflow-x: auto; }
 
+/* ── 视频对照模式：上方只放视频，下方仍是笔记预览 ── */
+.video-mode { display: flex; flex-direction: column; gap: 8px; }
+.vm-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.vm-frame {
+  position: relative; width: 100%; background: #000; border-radius: 10px; overflow: hidden;
+  /* 尽量占满上方：高度取宽度的一半左右，但不低于 380px，也不超过 78vh */
+  height: clamp(380px, 52vh, 78vh);
+}
+.vm-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+/* 对照模式下，成稿预览压缩到下面一块，仍可滚动与全屏 */
+/* 视频对照模式：把「成稿预览」上面的东西（任务头、七道工序卡片）收起来，
+   腾出高度；视频占上半屏，笔记预览占下半屏，两块都在视野里 */
+body.video-mode-on .proj-head,
+body.video-mode-on .progress-wrap { display: none; }
+.pane.video-on .vm-frame { height: 44vh; min-height: 260px; }
+.pane.video-on .preview-frame { height: calc(56vh - 150px); min-height: 200px; }
+
+/* 审校问题的编号方框 */
+.audit-group { display: inline-flex; align-items: center; gap: 6px; }
+.audit-label { color: #d21f1f; font-weight: 600; }
+.audit-chips { display: inline-flex; gap: 4px; }
+.audit-chip {
+  min-width: 22px; height: 22px; padding: 0 5px; border-radius: 5px; cursor: pointer;
+  border: 1px solid #e6b3b3; background: rgba(210, 31, 31, .07); color: #d21f1f;
+  font-size: 12px; font-weight: 600; font-family: inherit; line-height: 1;
+}
+.audit-chip:hover { background: rgba(210, 31, 31, .16); border-color: #d21f1f; }
+.audit-chip.active { background: #d21f1f; border-color: #d21f1f; color: #fff; }
+
 /* 程序已退出时的提示 */
 .server-down { position: fixed; inset: 0; z-index: 95; background: rgba(10, 16, 26, .55); backdrop-filter: blur(3px); display: grid; place-items: center; padding: 24px; }
 .sd-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 24px 26px; max-width: 460px; box-shadow: var(--shadow); text-align: center; }

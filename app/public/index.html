@@ -201,6 +201,18 @@
               <button class="btn small primary" id="btnExportPdf">📄 导出 PDF</button>
               <a class="btn small hidden" id="linkHtml" target="_blank">在新窗口打开</a>
               <a class="btn small hidden" id="linkMd">下载 Markdown</a>
+              <button class="btn small" id="btnVideoMode" title="上方嵌一个只有视频的播放器，下方仍然是笔记预览，方便对照着看（Esc 退出）">📺 视频对照</button>
+            </div>
+            <div class="video-mode hidden" id="videoMode">
+              <div class="vm-head">
+                <b id="vmTitle">视频对照</b>
+                <span class="tiny" id="vmHint">上方只放视频画面，下方仍是笔记预览；按 Esc 或点 ✕ 退出</span>
+                <span class="spacer"></span>
+                <a class="btn small ghost" id="vmOpen" title="在浏览器新标签页打开原视频页面">在网页打开</a>
+                <button class="btn small ghost icon-only" id="vmClose" title="退出对照模式（Esc）">✕</button>
+              </div>
+              <div class="vm-frame"><iframe id="vmIframe" allowfullscreen allow="autoplay; fullscreen; picture-in-picture"></iframe></div>
+            </div>
             </div>
             <div class="preview-wrap">
               <button class="btn small icon-only preview-fs" id="btnPreviewFs" title="全屏预览（Esc 退出）">⛶</button>
@@ -212,7 +224,10 @@
               <button class="btn primary" id="btnSupp">✨ AI 补充</button>
               <span class="tiny" id="suppHint">让 AI 找出课程里没讲到、但理解本节很关键的知识点，写在右侧空白处。</span>
               <span class="spacer"></span>
-              <button class="btn small ghost hidden warn" id="auditBadge" title="点一下跳到正文里对应的红色感叹号"></button>
+              <span class="audit-group hidden" id="auditGroup">
+                <span class="tiny audit-label">AI 审校</span>
+                <span class="audit-chips" id="auditChips"></span>
+              </span>
               <label class="chk hidden" id="suppToggleWrap"><input type="checkbox" id="chkSuppOn" checked> 显示批注</label>
               <a class="btn small hidden" id="linkSupp">在一页里看全部 →</a>
             </div>
