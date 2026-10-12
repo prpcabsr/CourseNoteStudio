@@ -1048,13 +1048,21 @@ function drawMarginNotesInner() {
     placed.push({ left, top, h });
 
     // 小曲线虚线：从批注左边缘连到「那一句话」的右上角外侧，
-    // 终点抬高到这一行的上沿，线走在行间空隙里，不和正文重叠
+    // 终点用**最后一行**的坐标（多行锚点时用整段并集会和下划线错开），
+    // 并抬到这一行的上沿，让线走在行间空隙里，不和正文重叠
+    // 只信「够宽」的 rect：文本节点被公式/换行切开时，按偏移映射可能落到别处，
+    // getClientRects() 会返回一堆 14px 宽（一个字）的碎片，那些会把下划线和箭头
+    // 带到十万八千里外。宽 rect 才是真正选中的那段话。
+    const good = hit ? hit.rects.filter((r) => r.width > 24) : [];
+    const firstRect = good[0] || null;
+    const marks = good;
     const fromX = left - 8;
     const fromY = top + 12;
-    const toX = anchorRect.right + win.scrollX + 12;
-    const toY = anchorRect.top + win.scrollY - 3;
+    // 有可信 rect 就指到那句话；没有就退回段落右边缘（至少不会指错地方）
+    const toX = (firstRect ? firstRect.right : anchorRect.right) + win.scrollX + 10;
+    const toY = (firstRect ? firstRect.top : anchorRect.top) + win.scrollY - 3;
     const p = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
-    p.setAttribute('d', curvePath(fromX, fromY, toX, toY));
+    p.setAttribute('d', curvePath(fromX, fromY, toX, toY, contentRight + win.scrollX + 14));
     p.setAttribute('fill', 'none');
     p.setAttribute('stroke', color);
     p.setAttribute('stroke-width', '1.4');
@@ -1063,11 +1071,12 @@ function drawMarginNotesInner() {
     p.setAttribute('marker-end', 'url(#aiArrowHead)');
     p.setAttribute('opacity', '.9');
     svg.appendChild(p);
-    // 句子下面画下划线，一眼看出箭头指的是哪一句
-    const marks = hit ? hit.rects : [anchorRect];
-    for (const mr of marks) {
+    // 句子下面画下划线，一眼看出箭头指的是哪一句。
+    // 注意：y 要落在这一行**行框内部** —— mr.bottom 是行框底边，画在那里会压到下一行文字。
+    for (const mr of marks.length ? marks : []) {
       const line = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
-      const y = mr.bottom + win.scrollY + 1.5;
+      // 行框高度通常比字号大（行距），往下沉 24% 正好贴在字的底线下方
+      const y = mr.bottom + win.scrollY - Math.max(2.5, mr.height * 0.24);
       line.setAttribute('d', `M ${mr.left + win.scrollX} ${y} L ${mr.right + win.scrollX} ${y}`);
       line.setAttribute('stroke', color);
       line.setAttribute('stroke-width', '1.5');
@@ -1088,14 +1097,29 @@ function drawMarginNotesInner() {
 }
 
 /**
- * 连线：一条平滑的小曲线（三次贝塞尔）。
- * 控制点沿水平方向外推，整条线只拐一次（曲率为 0 的点至多一处）。
- * 终点落在「那一行的上沿」，让线走在行与行的空隙里，不压住正文。
+ * 连线：从批注出发，**先走到正文栏右边的留白里**，沿着留白上下走，
+ * 最后只在目标那一行切进去。
+ * 之前是直接斜着连过去，长距离的横向线段会横穿正文，
+ * 看起来就像给别的文字加了下划线（用户反馈「离得好远、还和别的文字重合」）。
  */
-function curvePath(x0, y0, x1, y1) {
-  const dx = Math.abs(x0 - x1);
-  const k = Math.max(26, Math.min(130, dx * 0.5));
-  return `M ${x0} ${y0} C ${x0 - k} ${y0}, ${x1 + k * 0.7} ${y1 - 6}, ${x1} ${y1}`;
+function curvePath(x0, y0, x1, y1, marginX) {
+  const mx = Number.isFinite(marginX) ? marginX : Math.min(x0 - 12, Math.max(x1 + 40, x0 - 120));
+  const r = 9; // 圆角半径
+  if (Math.abs(y1 - y0) < r * 2) {
+    // 高度差很小：直接一条平缓曲线就够了
+    const k = Math.max(18, Math.min(60, Math.abs(x0 - x1) * 0.4));
+    return `M ${x0} ${y0} Q ${x0 - k} ${y0} ${((x0 - k + x1) / 2).toFixed(1)} ${((y0 + y1) / 2).toFixed(1)} T ${x1} ${y1}`;
+  }
+  const down = y1 > y0 ? 1 : -1;
+  // ① 横向退到留白 ② 沿留白上下 ③ 切进目标行（圆角过渡）
+  return [
+    `M ${x0} ${y0}`,
+    `L ${mx + r} ${y0}`,
+    `Q ${mx} ${y0} ${mx} ${y0 + down * r}`,
+    `L ${mx} ${y1 - down * r}`,
+    `Q ${mx} ${y1} ${mx - r} ${y1}`,
+    `L ${x1} ${y1}`,
+  ].join(' ');
 }
 
 /** 正文里的红标（排除附录卡片标题里的那个，以及我们自己弹的说明卡片里的）。 */
@@ -1240,6 +1264,13 @@ function anchorRange(doc, scopeEl, key) {
     const range = doc.createRange();
     range.setStart(a.node, a.offset);
     range.setEnd(b.node, b.offset + 1);
+    // 关键校验：真正抽取出来的文字必须**以锚点开头**，而且不能长得离谱。
+    // 文本节点被公式、换行切开时，按「去空白偏移」映射可能落到别处，
+    // 于是 getClientRects() 会返回跨越好几行的一堆 rect（实测取到过 8 个，
+    // 每个只有 14px 宽），下划线和箭头就会一个指这儿一个指那儿。
+    const got = String(range.toString()).replace(/\s+/g, '');
+    if (!got.startsWith(key.slice(0, 4))) return null;
+    if (got.length > Math.max(key.length * 2 + 12, 28)) return null;
     const rects = [...range.getClientRects()].filter((r) => r.width > 1 && r.height > 1);
     const rect = range.getBoundingClientRect();
     return rects.length ? { rect, rects } : null;
