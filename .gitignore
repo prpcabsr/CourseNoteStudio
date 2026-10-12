@@ -21,3 +21,6 @@ desktop.ini
 .idea/
 *.swp
 *.tmp
+
+# 软著申请材料（由 app/make-copyright.mjs 生成，属用户材料）
+软著材料/
