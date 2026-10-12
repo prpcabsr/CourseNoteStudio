@@ -48,6 +48,9 @@ const checks = [
   ['审校已改成自动（没有手动按钮）', !html.includes('id="btnAudit"') && js.includes('function renderAuditBadge')],
   ['重新排版会自动补做审校', server.includes('这份成稿还没审校过')],
   ['静态资源禁用缓存（改了代码不会看到旧界面）', server.includes("'cache-control': 'no-store, must-revalidate'")],
+  ['整章做题技巧入口在任务列表上方', html.indexOf('id="btnSummary"') > 0 && html.indexOf('id="btnSummary"') < html.indexOf('id="projList"')],
+  ['整章做题技巧支持跨任务多选', js.includes('sumPickData') && js.includes('/api/summary/pickable')],
+  ['总结落盘在 data/summaries（用户数据）', server.includes("summaries") || js.includes('/api/summary')],
 ];
 
 let bad = 0;
