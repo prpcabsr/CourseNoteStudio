@@ -199,6 +199,7 @@
               <button class="btn small primary" id="btnExportPdf">📄 导出 PDF</button>
               <a class="btn small hidden" id="linkHtml" target="_blank">在新窗口打开</a>
               <a class="btn small hidden" id="linkMd">下载 Markdown</a>
+              <button class="btn small" id="btnSummary" title="把一章（可能跨好几讲）的笔记提炼成做题技巧手册：什么时候用什么公式、公式之间怎么区分">🧭 整章做题技巧</button>
             </div>
             <div class="preview-wrap">
               <button class="btn small icon-only preview-fs" id="btnPreviewFs" title="全屏预览（Esc 退出）">⛶</button>
@@ -364,6 +365,29 @@
         </div>
       </section>
     </main>
+  </div>
+</div>
+
+<!-- ─────────────── 整章做题技巧 ─────────────── -->
+<div class="modal-mask hidden" id="sumMask">
+  <div class="modal wide" id="sumModal">
+    <div class="modal-head">
+      <b>🧭 整章做题技巧</b>
+      <span class="tiny" id="sumHint">勾选属于同一章的笔记（可以跨任务、跨讲次），AI 会提炼成「看到什么条件用什么公式」的做题手册。</span>
+      <span class="spacer"></span>
+      <button class="btn small ghost icon-only" id="sumClose" title="关闭">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="sum-pick" id="sumPick"></div>
+      <div class="sum-out hidden" id="sumOut"></div>
+    </div>
+    <div class="modal-foot">
+      <span class="tiny" id="sumStatus"></span>
+      <span class="spacer"></span>
+      <a class="btn small hidden" id="sumDownload">下载 Markdown</a>
+      <button class="btn small hidden" id="sumRegen">换个说法重生成</button>
+      <button class="btn primary" id="sumGo">生成做题技巧</button>
+    </div>
   </div>
 </div>
 

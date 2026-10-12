@@ -760,6 +760,125 @@ async function openSearchHit(hit) {
   $('#noteList')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+/* ─────────────── 整章做题技巧 ─────────────── */
+let sumPickData = null;
+
+async function openSummary() {
+  $('#sumMask').classList.remove('hidden');
+  $('#sumOut').classList.add('hidden');
+  $('#sumOut').innerHTML = '';
+  $('#sumDownload').classList.add('hidden');
+  $('#sumRegen').classList.add('hidden');
+  $('#sumPick').classList.remove('hidden');
+  $('#sumGo').classList.remove('hidden');
+  $('#sumStatus').textContent = '正在读取各任务的章节…';
+  try {
+    const r = await api.get('/api/summary/pickable');
+    sumPickData = r.projects || [];
+  } catch (e) {
+    $('#sumStatus').textContent = '读取失败：' + e.message;
+    return;
+  }
+  const withSecs = sumPickData.filter((p) => p.sections.length);
+  if (!withSecs.length) {
+    $('#sumPick').innerHTML = '<p class="tiny">还没有任何已完成的任务。先跑出一个笔记任务再来。</p>';
+    $('#sumStatus').textContent = '';
+    return;
+  }
+  // 默认勾上当前任务（如果它在列表里）
+  const cur = state.current?.id;
+  $('#sumPick').innerHTML = withSecs
+    .map(
+      (p) => `
+    <div class="sum-proj" data-pid="${esc(p.projectId)}">
+      <label><input type="checkbox" class="sum-all" ${p.projectId === cur ? 'checked' : ''}> ${esc(p.title)}
+        <span class="tiny">（${p.sections.length} 节）</span></label>
+      <div class="sum-secs">
+        ${p.sections
+          .map(
+            (s) =>
+              `<label><input type="checkbox" class="sum-sec" value="${s.index}" ${p.projectId === cur ? 'checked' : ''}> ${s.index + 1}. ${esc(s.title)}</label>`,
+          )
+          .join('')}
+      </div>
+    </div>`,
+    )
+    .join('');
+  $('#sumPick').querySelectorAll('.sum-all').forEach((cb) => {
+    cb.onchange = () => {
+      cb.closest('.sum-proj').querySelectorAll('.sum-sec').forEach((s) => (s.checked = cb.checked));
+      sumCount();
+    };
+  });
+  $('#sumPick').querySelectorAll('.sum-sec').forEach((cb) => (cb.onchange = sumCount));
+  sumCount();
+}
+
+function sumCount() {
+  const n = $$('#sumPick .sum-sec:checked').length;
+  const chars = $$('#sumPick .sum-proj').reduce((a, el) => {
+    const pid = el.dataset.pid;
+    const p = (sumPickData || []).find((x) => x.projectId === pid);
+    if (!p) return a;
+    const picked = [...el.querySelectorAll('.sum-sec:checked')].map((c) => Number(c.value));
+    return a + picked.reduce((b, i) => b + (p.sections.find((s) => s.index === i)?.chars || 0), 0);
+  }, 0);
+  $('#sumStatus').textContent = n ? `已选 ${n} 节，约 ${Math.round(chars / 1000)} 千字材料` : '还没勾选';
+  $('#sumGo').disabled = n === 0;
+}
+
+function collectPicks() {
+  const picks = [];
+  $$('#sumPick .sum-proj').forEach((el) => {
+    const sections = [...el.querySelectorAll('.sum-sec:checked')].map((c) => Number(c.value));
+    if (sections.length) picks.push({ projectId: el.dataset.pid, sections });
+  });
+  return picks;
+}
+
+async function runSummary() {
+  const picks = collectPicks();
+  if (!picks.length) return;
+  const btn = $('#sumGo');
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = '正在提炼…';
+  $('#sumStatus').textContent = '正在读材料、提炼做题技巧，通常 20~60 秒…';
+  try {
+    const r = await api.post('/api/summary', { picks });
+    $('#sumPick').classList.add('hidden');
+    $('#sumGo').classList.add('hidden');
+    const out = $('#sumOut');
+    out.classList.remove('hidden');
+    out.innerHTML = r.html || '';
+    renderMath(out);
+    $('#sumDownload').classList.remove('hidden');
+    $('#sumDownload').onclick = () => {
+      const blob = new Blob([r.markdown || ''], { type: 'text/markdown;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = '做题技巧.md';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+    const regen = $('#sumRegen');
+    regen.classList.remove('hidden');
+    regen.onclick = () => {
+      $('#sumPick').classList.remove('hidden');
+      $('#sumGo').classList.remove('hidden');
+      runSummary();
+    };
+    $('#sumStatus').textContent = `✓ 生成完成（来源：${(r.sources || []).map((s) => s.title).join('、')}）`;
+    addLog('🧭 整章做题技巧已生成', 'ok');
+  } catch (e) {
+    $('#sumStatus').textContent = '生成失败：' + e.message;
+    toast('生成失败：' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+
 /* ─────────────── AI 补充（成稿预览里的旁注 + 补充讲解页） ─────────────── */
 const supp = { items: [], on: true, busy: false };
 // AI 审校：只含「根本错误」。红色感叹号已经烧进成稿（关掉批注也看得见），
@@ -1059,8 +1178,10 @@ function drawMarginNotesInner() {
     const fromX = left - 8;
     const fromY = top + 12;
     // 有可信 rect 就指到那句话；没有就退回段落右边缘（至少不会指错地方）
+    // 终点再抬高一些：离文字太近会显得挤，也不好认
+    const LINE_GAP = 8;
     const toX = (firstRect ? firstRect.right : anchorRect.right) + win.scrollX + 10;
-    const toY = (firstRect ? firstRect.top : anchorRect.top) + win.scrollY - 3;
+    const toY = (firstRect ? firstRect.top : anchorRect.top) + win.scrollY - LINE_GAP;
     const p = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
     p.setAttribute('d', curvePath(fromX, fromY, toX, toY, contentRight + win.scrollX + 14));
     p.setAttribute('fill', 'none');
@@ -1099,19 +1220,18 @@ function drawMarginNotesInner() {
 /**
  * 连线：从批注出发，**先走到正文栏右边的留白里**，沿着留白上下走，
  * 最后只在目标那一行切进去。
- * 之前是直接斜着连过去，长距离的横向线段会横穿正文，
- * 看起来就像给别的文字加了下划线（用户反馈「离得好远、还和别的文字重合」）。
+ * 全部用直线段 + 圆角转折：之前用曲线时，高度差小的情形会画出一条微微弯的线，
+ * 看起来「不直」，所以这里一律走折线。
  */
 function curvePath(x0, y0, x1, y1, marginX) {
   const mx = Number.isFinite(marginX) ? marginX : Math.min(x0 - 12, Math.max(x1 + 40, x0 - 120));
-  const r = 9; // 圆角半径
-  if (Math.abs(y1 - y0) < r * 2) {
-    // 高度差很小：直接一条平缓曲线就够了
-    const k = Math.max(18, Math.min(60, Math.abs(x0 - x1) * 0.4));
-    return `M ${x0} ${y0} Q ${x0 - k} ${y0} ${((x0 - k + x1) / 2).toFixed(1)} ${((y0 + y1) / 2).toFixed(1)} T ${x1} ${y1}`;
+  const r = 9;
+  const dy = y1 - y0;
+  if (Math.abs(dy) < r * 2) {
+    // 几乎同一高度：一条水平直线（不做任何弯曲，保证「直」）
+    return `M ${x0} ${y0} L ${x1} ${y1}`;
   }
-  const down = y1 > y0 ? 1 : -1;
-  // ① 横向退到留白 ② 沿留白上下 ③ 切进目标行（圆角过渡）
+  const down = dy > 0 ? 1 : -1;
   return [
     `M ${x0} ${y0}`,
     `L ${mx + r} ${y0}`,
@@ -2165,6 +2285,12 @@ function bind() {
 
   // 导出 PDF / 全屏预览 / 全屏里的 AI
   $('#btnExportPdf').onclick = exportPdf;
+  $('#btnSummary').onclick = openSummary;
+  $('#sumClose').onclick = () => $('#sumMask').classList.add('hidden');
+  $('#sumMask').onclick = (e) => {
+    if (e.target === $('#sumMask')) $('#sumMask').classList.add('hidden');
+  };
+  $('#sumGo').onclick = runSummary;
   $('#auditBadge').onclick = () => {
     if (!gotoAuditFlag((audit.cursor || 1) - 1)) {
       toast('没找到红标：如果这份成稿是旧版本，先点「重新排版」', 'err');
@@ -2282,6 +2408,7 @@ async function install(ids) {
     runSearch(q0);
   }
   // 支持 /?audit=1 打开任务后直接跳到第一处审校红标（也便于截图核对）
+  if (params.get('summary') === '1') setTimeout(openSummary, 1500);
   // 用「数据加载完成后再跳」而不是轮询：轮询在无头浏览器的虚拟时间下会先跑完
   if (params.get('audit') === '1') pendingAuditJump = true;
   // 支持 /?fs=1 打开任务后直接进全屏预览；&fsai=1 顺带把 AI 面板拉出来

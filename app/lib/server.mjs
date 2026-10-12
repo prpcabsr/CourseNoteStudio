@@ -13,6 +13,7 @@ import { callLlm } from './fusion.mjs';
 import { searchExact, searchAi, invalidateSearchCache } from './search.mjs';
 import { generateSupplements, loadSupplements } from './supplement.mjs';
 import { auditNotes, loadAudit } from './audit.mjs';
+import { generateSummary, listSummaries, loadSummary, listPickable } from './summary.mjs';
 import { asrAssets } from './asr.mjs';
 import { isUrl } from './ingest.mjs';
 import { mdToHtml, lookCss } from './render.mjs';
@@ -339,6 +340,48 @@ export function startServer({ port = 7788, host = '127.0.0.1', open = true, auto
         return send(res, 200, { ok: true });
       }
 
+      // ---- 整章做题技巧总结
+      if (p === '/api/summary/pickable' && req.method === 'GET') {
+        return send(res, 200, { projects: listPickable(listProjects()) });
+      }
+      if (p === '/api/summary' && req.method === 'GET') {
+        return send(res, 200, { items: listSummaries() });
+      }
+      if (p === '/api/summary' && req.method === 'POST') {
+        const body = await readBody(req);
+        const want = body.picks || [];
+        if (!want.length) return send(res, 400, { error: '请先勾选要总结的笔记' });
+        const cfg = loadConfig();
+        try {
+          // 按勾选把每一节的 markdown 取出来
+          const picks = [];
+          for (const w of want) {
+            const P = projectPaths(w.projectId);
+            const doc = readJson(path.join(P.work, 'doc.json'));
+            if (!doc) continue;
+            const st = loadState(w.projectId);
+            const picked = (w.sections || [])
+              .map((i) => doc.sections?.[i])
+              .filter((s) => s && String(s.markdown || '').trim().length > 40);
+            if (!picked.length) continue;
+            picks.push({ projectId: w.projectId, title: st?.title || doc.title || w.projectId, sections: picked });
+          }
+          if (!picks.length) return send(res, 400, { error: '勾选的笔记没有可用内容' });
+          const out = await generateSummary({
+            picks,
+            cfg,
+            onEvent: (ev) => broadcast(ev),
+          });
+          return send(res, 200, { ok: true, id: out.id, markdown: out.markdown, html: out.html, sources: out.sources });
+        } catch (e) {
+          return send(res, 500, { error: e.message });
+        }
+      }
+      if (p.startsWith('/api/summary/') && req.method === 'GET') {
+        const one = loadSummary(p.slice('/api/summary/'.length));
+        if (!one) return send(res, 404, { error: 'not found' });
+        return send(res, 200, one);
+      }
       // ---- 项目
       if (p === '/api/projects' && req.method === 'GET') return send(res, 200, listProjects());
       if (p === '/api/projects' && req.method === 'POST') {
