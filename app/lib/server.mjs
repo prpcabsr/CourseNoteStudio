@@ -15,7 +15,7 @@ import { generateSupplements, loadSupplements } from './supplement.mjs';
 import { auditNotes, loadAudit } from './audit.mjs';
 import { generateSummary, listSummaries, loadSummary, listPickable } from './summary.mjs';
 import { asrAssets } from './asr.mjs';
-import { isUrl, normalizeVideoInput } from './ingest.mjs';
+import { isUrl, normalizeVideoInput, listParts } from './ingest.mjs';
 import { mdToHtml, lookCss, textToHtml, titleMath } from './render.mjs';
 import { repairLatex } from './latex.mjs';
 import fsx from 'node:fs';
@@ -458,6 +458,39 @@ export function startServer({ port = 7788, host = '127.0.0.1', open = true, auto
         return send(res, 200, one);
       }
       // ---- 项目
+      // ---- 合集 / 多 P 选集
+      if (p === '/api/parts' && req.method === 'POST') {
+        const body = await readBody(req);
+        const url = normalizeVideoInput(body.url || '');
+        if (!url) return send(res, 400, { error: '请先填写视频链接' });
+        try {
+          return send(res, 200, await listParts(url));
+        } catch (e) {
+          return send(res, 500, { error: e.message });
+        }
+      }
+      if (p === '/api/projects/batch' && req.method === 'POST') {
+        const body = await readBody(req);
+        const url = normalizeVideoInput(body.url || '');
+        const pages = (body.parts || []).map(Number).filter((n) => n > 0);
+        if (!url || !pages.length) return send(res, 400, { error: '请先勾选要解析的选集' });
+        const options = { ...body.options };
+        const created = [];
+        for (const n of pages) {
+          const u = url.replace(/([?&])p=\d+/, `$1p=${n}`);
+          const withP = /\bp=\d+/.test(u) ? u : (/\?/.test(u) ? `${u}&p=${n}` : `${u}?p=${n}`);
+          try {
+            const st = createProject({ input: withP, options, title: body.titles?.[n] || '' });
+            created.push({ id: st.id, page: n, title: body.titles?.[n] || '' });
+          } catch (e) {
+            broadcast({ type: 'log', level: 'warn', message: `第 ${n} 集创建失败：${e.message}` });
+          }
+        }
+        if (!created.length) return send(res, 500, { error: '一个任务都没能创建成功' });
+        broadcast({ type: 'log', message: `已创建 ${created.length} 个任务，会按队列逐个处理（同时最多 2 个）` });
+        for (const c of created) startQueued(c.id, {});
+        return send(res, 200, { ok: true, created });
+      }
       if (p === '/api/projects' && req.method === 'GET') return send(res, 200, listProjects());
       if (p === '/api/projects' && req.method === 'POST') {
         const body = await readBody(req);

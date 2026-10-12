@@ -52,6 +52,57 @@ export function normalizeVideoInput(raw) {
   return url;
 }
 
+/**
+ * 列出一个合集 / 多 P 视频里的所有选集。
+ *
+ * 为什么不用 yt-dlp 一把梭：B 站多 P 视频用 --flat-playlist 拿不到标题和时长
+ * （entries 里只有 url），而官方的分P接口一次请求就能拿到全部标题与时长，
+ * 免登录、秒回，所以我们优先用它；其它平台再退回 yt-dlp。
+ */
+export async function listParts(rawUrl) {
+  const input = normalizeVideoInput(rawUrl);
+  const bv = input.match(/bilibili\.com\/video\/(BV[0-9A-Za-z]+)/i);
+  if (bv) {
+    const bvid = bv[1];
+    const r = await fetch(`https://api.bilibili.com/x/player/pagelist?bvid=${bvid}`, {
+      headers: { 'user-agent': 'Mozilla/5.0', referer: 'https://www.bilibili.com/' },
+      signal: AbortSignal.timeout(15000),
+    });
+    const j = await r.json();
+    if (j.code !== 0) throw new Error(`B 站返回错误：${j.message || j.code}`);
+    const parts = (j.data || []).map((p) => ({
+      index: p.page,
+      title: String(p.part || `第 ${p.page} 集`).trim(),
+      duration: Number(p.duration) || 0,
+      url: `https://www.bilibili.com/video/${bvid}?p=${p.page}`,
+    }));
+    if (!parts.length) throw new Error('这个视频没有分 P');
+    return { platform: 'bilibili', id: bvid, title: bvid, parts };
+  }
+
+  // 其它平台：让 yt-dlp 列出播放列表/合集
+  const bin = findYtDlp();
+  if (!bin) throw new Error('还没安装 yt-dlp，无法读取合集');
+  const { code, stdout, stderr } = await run(bin, ['-J', '--flat-playlist', '--no-warnings', input], { timeoutMs: 120000 });
+  if (code !== 0) {
+    throw new Error(`读取合集失败：${String(stderr || '').split('\n').filter(Boolean).slice(-1)[0] || code}`);
+  }
+  const data = JSON.parse(stdout);
+  const entries = data.entries || [];
+  if (!entries.length) throw new Error('这个链接里没有找到选集（可能是单个视频）');
+  return {
+    platform: 'generic',
+    id: data.id || '',
+    title: data.title || '',
+    parts: entries.map((e, i) => ({
+      index: i + 1,
+      title: String(e.title || `第 ${i + 1} 集`).trim(),
+      duration: Number(e.duration) || 0,
+      url: e.url || e.webpage_url || '',
+    })),
+  };
+}
+
 /** 探测媒体信息。 */
 export async function probeMedia(file) {
   const info = await ffprobeJson(file);

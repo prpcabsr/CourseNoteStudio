@@ -801,6 +801,134 @@ function normalizeInput(raw) {
   return url;
 }
 
+/* ─────────────── 批量选集 ─────────────── */
+let partsInfo = null;
+
+/** 粘进来的链接如果是合集，就在输入框下面提示一句，让用户去勾选集。 */
+async function checkMultiParts() {
+  const url = normalizeInput($('#inputUrl').value.trim());
+  const hint = $('#multiHint');
+  hint.classList.add('hidden');
+  if (!url || !/^https?:/i.test(url)) return null;
+  // 只对 B 站多 P 视频做自动探测（免登录、秒回）；其它平台等用户点按钮再查
+  if (!/bilibili\.com\/video\/BV/i.test(url)) return null;
+  try {
+    const info = await api.post('/api/parts', { url });
+    partsInfo = info;
+    if (info.parts.length > 1) {
+      $('#multiHintText').textContent = `这是一个合集，共 ${info.parts.length} 集 —— 不用一集一集粘链接，直接批量勾选。`;
+      hint.classList.remove('hidden');
+    }
+    return info;
+  } catch {
+    return null;
+  }
+}
+
+async function openPartsPicker() {
+  const hint = $('#multiHint');
+  const url = normalizeInput($('#inputUrl').value.trim());
+  $('#partsMask').classList.remove('hidden');
+  $('#partsList').innerHTML = '<p class="tiny">正在读取选集…</p>';
+  $('#partsStatus').textContent = '';
+  $('#partsGo').disabled = true;
+  try {
+    if (!partsInfo || !url) partsInfo = await api.post('/api/parts', { url });
+    if (!partsInfo) throw new Error('请先填写视频链接');
+    renderParts(partsInfo);
+    hint.classList.add('hidden');
+  } catch (e) {
+    $('#partsList').innerHTML = `<p class="tiny">读取失败：${esc(e.message)}</p>`;
+  }
+}
+
+function fmtDur(sec) {
+  const s = Number(sec) || 0;
+  if (!s) return '';
+  const m = Math.round(s / 60);
+  return m >= 60 ? `${Math.floor(m / 60)} 时 ${m % 60} 分` : `${m} 分`;
+}
+
+function renderParts(info) {
+  const list = $('#partsList');
+  list.innerHTML = info.parts
+    .map(
+      (p) => `<label data-i="${p.index}" data-title="${esc(p.title)}">
+        <input type="checkbox" class="part-cb" value="${p.index}">
+        <span>${p.index}. ${esc(p.title)}</span>
+        <span class="dur">${fmtDur(p.duration)}</span>
+      </label>`,
+    )
+    .join('');
+  list.querySelectorAll('.part-cb').forEach((cb) => {
+    cb.onchange = () => {
+      cb.closest('label').classList.toggle('on', cb.checked);
+      partsCount();
+    };
+  });
+  // 默认勾上「用户当前链接指向的那一集」
+  const cur = Number((normalizeInput($('#inputUrl').value).match(/[?&]p=(\d+)/) || [])[1] || 0);
+  if (cur) {
+    const cb = list.querySelector(`.part-cb[value="${cur}"]`);
+    if (cb) {
+      cb.checked = true;
+      cb.closest('label').classList.add('on');
+    }
+  }
+  partsCount();
+}
+
+function partsCount() {
+  const n = $$('#partsList .part-cb:checked').length;
+  $('#partsCount').textContent = `已选 ${n} / ${partsInfo?.parts.length || 0} 集`;
+  $('#partsGo').disabled = n === 0;
+  $('#partsGo').textContent = n ? `创建 ${n} 个任务` : '创建任务';
+}
+
+/** 只让「筛选」命中的那些集显示出来 */
+function filterParts(kw) {
+  const k = String(kw || '').trim();
+  $$('#partsList label').forEach((el) => {
+    const hit = !k || el.dataset.title.includes(k);
+    el.style.display = hit ? '' : 'none';
+  });
+}
+
+async function createBatch() {
+  const picks = $$('#partsList .part-cb:checked').map((c) => Number(c.value));
+  if (!picks.length) return;
+  const url = normalizeInput($('#inputUrl').value.trim());
+  const titles = {};
+  for (const p of partsInfo?.parts || []) if (picks.includes(p.index)) titles[p.index] = p.title;
+  const btn = $('#partsGo');
+  btn.disabled = true;
+  btn.textContent = '创建中…';
+  $('#partsStatus').textContent = '正在建任务…';
+  try {
+    const r = await api.post('/api/projects/batch', {
+      url,
+      parts: picks,
+      titles,
+      options: { density: $('#selDensity')?.value || 'balanced' },
+    });
+    $('#partsStatus').textContent = `✓ 已创建 ${r.created.length} 个任务，会按队列逐个处理`;
+    toast(`已创建 ${r.created.length} 个任务`, 'ok');
+    addLog(`📚 已批量创建 ${r.created.length} 个任务（会排队处理）`, 'ok');
+    refreshProjects();
+    setTimeout(() => {
+      $('#partsMask').classList.add('hidden');
+      partsInfo = null;
+      refreshProjects();
+    }, 1200);
+  } catch (e) {
+    $('#partsStatus').textContent = '创建失败：' + e.message;
+    toast('创建失败：' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    partsCount();
+  }
+}
+
 /* ─────────────── 视频对照模式 ─────────────── */
 /**
  * 把课程链接变成「只有视频」的播放器地址。
@@ -2290,8 +2418,40 @@ function bind() {
       setTimeout(() => $('#pasteHint').classList.add('hidden'), 2600);
     }
   };
-  $('#inputUrl').addEventListener('paste', () => setTimeout(cleanInput, 0));
-  $('#inputUrl').addEventListener('blur', cleanInput);
+  $('#inputUrl').addEventListener('paste', () => setTimeout(() => { cleanInput(); checkMultiParts(); }, 0));
+  $('#inputUrl').addEventListener('blur', () => { cleanInput(); checkMultiParts(); });
+  $('#btnPickParts').onclick = openPartsPicker;
+  $('#partsClose').onclick = () => $('#partsMask').classList.add('hidden');
+  $('#partsMask').onclick = (e) => {
+    if (e.target === $('#partsMask')) $('#partsMask').classList.add('hidden');
+  };
+  $('#partsFilter').addEventListener('input', (e) => filterParts(e.target.value));
+  $('#partsAll').onclick = () => {
+    $$('#partsList label').forEach((el) => {
+      if (el.style.display === 'none') return;
+      const cb = el.querySelector('.part-cb');
+      cb.checked = true;
+      el.classList.add('on');
+    });
+    partsCount();
+  };
+  $('#partsNone').onclick = () => {
+    $$('#partsList label').forEach((el) => {
+      el.querySelector('.part-cb').checked = false;
+      el.classList.remove('on');
+    });
+    partsCount();
+  };
+  $('#partsInvert').onclick = () => {
+    $$('#partsList label').forEach((el) => {
+      if (el.style.display === 'none') return;
+      const cb = el.querySelector('.part-cb');
+      cb.checked = !cb.checked;
+      el.classList.toggle('on', cb.checked);
+    });
+    partsCount();
+  };
+  $('#partsGo').onclick = createBatch;
   $('#btnSettings').onclick = openDrawer;
   $('#btnCloseDrawer').onclick = closeDrawer;
   $('#drawerMask').onclick = closeDrawer;
@@ -2561,6 +2721,13 @@ async function install(ids) {
     runSearch(q0);
   }
   // 支持 /?audit=1 打开任务后直接跳到第一处审校红标（也便于截图核对）
+  // 支持 /?parts=BVxxxx 直接打开选集弹窗（也便于截图核对）
+  if (params.get('parts')) {
+    setTimeout(() => {
+      $('#inputUrl').value = 'https://www.bilibili.com/video/' + params.get('parts');
+      openPartsPicker();
+    }, 800);
+  }
   // 支持 /?video=1 打开任务后直接进视频对照模式（也便于截图核对）
   if (params.get('video') === '1') setTimeout(() => state.current && toggleVideoMode(true), 1800);
   if (params.get('summary') === '1') setTimeout(openSummary, 1500);

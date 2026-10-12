@@ -87,6 +87,10 @@
             <button class="btn primary big" id="btnStart">开始生成</button>
           </div>
           <div class="tiny hidden clip-hint" id="pasteHint">已自动去掉多余文字与分享跟踪参数，只保留视频链接</div>
+          <div class="multi-hint hidden" id="multiHint">
+            <span id="multiHintText"></span>
+            <button class="btn small primary" id="btnPickParts">📚 勾选要解析的选集</button>
+          </div>
           <div class="input-extra">
             <label class="field"><span>课程名称（可选）</span>
               <input id="inputCourse" class="input" type="text" placeholder="高等数学 · 第 12 讲">
@@ -381,6 +385,33 @@
         </div>
       </section>
     </main>
+  </div>
+</div>
+
+<!-- ─────────────── 批量选集 ─────────────── -->
+<div class="modal-mask hidden" id="partsMask">
+  <div class="modal wide" id="partsModal">
+    <div class="modal-head">
+      <b>📚 选择要解析的选集</b>
+      <span class="tiny" id="partsHint">一次可以勾很多集，任务会自动排队，不会全部挤在一起跑。</span>
+      <span class="spacer"></span>
+      <button class="btn small ghost icon-only" id="partsClose" title="关闭">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="parts-tools">
+        <input class="input" id="partsFilter" placeholder="筛选（输入标题里的字，例如「罗郎定理」）" autocomplete="off">
+        <button class="btn small" id="partsAll">全选</button>
+        <button class="btn small" id="partsNone">全不选</button>
+        <button class="btn small" id="partsInvert">反选</button>
+        <span class="tiny" id="partsCount"></span>
+      </div>
+      <div class="parts-list" id="partsList"></div>
+    </div>
+    <div class="modal-foot">
+      <span class="tiny" id="partsStatus"></span>
+      <span class="spacer"></span>
+      <button class="btn primary" id="partsGo">创建任务</button>
+    </div>
   </div>
 </div>
 
